@@ -5,7 +5,8 @@ import { createDeck, shuffleDeck, getRankValue } from '../lib/utils'; // Added g
 import { evaluateHand, compareEvaluatedHands } from '../lib/pokerEvaluator';
 import io, { Socket } from 'socket.io-client';
 
-const SERVER_URL = 'http://localhost:3000'; // Ensure this matches your server
+// For local development, use localhost. For production, connect to the same origin.
+const SERVER_URL = process.env.NODE_ENV === 'production' ? window.location.origin : 'http://localhost:3000';
 
 // Helper function for AI strategic evaluation
 const calculateHandPotential = (
