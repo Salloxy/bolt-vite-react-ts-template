@@ -152,7 +152,7 @@ const GameTable: React.FC<GameTableProps> = ({ isOnline, onGoHome, onRestartGame
     return (
       <div className={`player-hands-area flex justify-evenly items-center p-1 ${isOpponent ? 'mb-2' : 'mt-2'}`}>
         {player.hands.map((hand, handIdx) => (
-          <div key={`${player.id}-hand-${handIdx}`} className="hand relative flex flex-col items-center mx-0.5 min-w-0">
+          <div key={`${player.id}-hand-${handIdx}`} className="hand relative flex flex-col items-center w-[5.5rem]">
             <div className="relative hand-stack-container-dimensions">
               {Array(5).fill(null).map((_, slotIndex) => {
                 const cardInSlot = hand.cards[slotIndex];

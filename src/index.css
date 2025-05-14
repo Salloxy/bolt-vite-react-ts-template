@@ -3,19 +3,19 @@
 @tailwind utilities;
 
 :root {
-  /* Further Adjusted card sizes for mobile-first 9:16 layout */
-  --card-width: 4.5rem;    /* Approx 72px at 16px root font. Was 4.8rem */
-  --card-height: 6.3rem;   /* Approx 100.8px (maintaining 1.4 aspect ratio). Was 6.72rem */
-  --card-stack-offset: 1.08rem; /* Approx 17.28px. Was 1.15rem */
-  --card-stack-container-height: calc(var(--card-height) + 4 * var(--card-stack-offset)); /* Approx 10.62rem or 169.92px */
+  /* Further Adjusted card sizes for mobile-first 9:16 layout - Reduced by ~10% */
+  --card-width: 4.05rem;    /* Approx 64.8px at 16px root font. Was 4.5rem */
+  --card-height: 5.67rem;   /* Approx 90.72px (maintaining 1.4 aspect ratio). Was 6.3rem */
+  --card-stack-offset: 0.972rem; /* Approx 15.55px. Was 1.08rem */
+  --card-stack-container-height: calc(var(--card-height) + 4 * var(--card-stack-offset)); /* Will update automatically */
 
-  /* Base font sizes - these might also need adjustment for mobile-first, but let's start with cards */
-  --text-sm-responsive: 1rem; /* 16px */
-  --text-base-responsive: 1.125rem; /* 18px */
-  --text-lg-responsive: 1.25rem; /* 20px */
-  --text-xl-responsive: 1.5rem; /* 24px */
-  --text-2xl-responsive: 1.875rem; /* 30px */
-  --text-3xl-responsive: 2.25rem; /* 36px */
+  /* Base font sizes - Reduced by ~10% */
+  --text-sm-responsive: 0.9rem; /* 14.4px */
+  --text-base-responsive: 1.0125rem; /* 16.2px */
+  --text-lg-responsive: 1.125rem; /* 18px */
+  --text-xl-responsive: 1.35rem; /* 21.6px */
+  --text-2xl-responsive: 1.6875rem; /* 27px */
+  --text-3xl-responsive: 2.025rem; /* 32.4px */
 }
 
 /* Utility class to apply card dimensions */
