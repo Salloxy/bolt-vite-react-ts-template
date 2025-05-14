@@ -166,7 +166,7 @@ const GameTable: React.FC<GameTableProps> = ({ isOnline, onGoHome, onRestartGame
                     <div
                       key={`card-${player.id}-${handIdx}-${slotIndex}`}
                       className="absolute"
-                      style={{ top: `${cardDisplayOffset}px`, zIndex: zIndex }}
+                      style={{ top: `${cardDisplayOffset}px`, left: 0, zIndex: zIndex }}
                     >
                       <CardDisplay
                         card={cardInSlot}
