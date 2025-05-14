@@ -31,36 +31,25 @@ function App() {
       const currentWidth = window.innerWidth;
       const currentHeight = window.innerHeight;
 
-      let scaleFactor = 1;
+      // Always scale to fit, maintaining aspect ratio (contain)
+      const scaleFactor = Math.min(
+        currentWidth / DESIGN_TARGET_WIDTH,
+        currentHeight / DESIGN_TARGET_HEIGHT
+      );
 
-      // Calculate scale based on width and height relative to design targets
-      const widthScale = currentWidth / DESIGN_TARGET_WIDTH;
-      const heightScale = currentHeight / DESIGN_TARGET_HEIGHT;
-
-      // Determine if we are on a "large" screen that should pillarbox (wider and taller than design target)
-      const isLargeScreenForPillarbox = currentWidth > DESIGN_TARGET_WIDTH && currentHeight > DESIGN_TARGET_HEIGHT;
-
-      let newGameStyle: React.CSSProperties = { width: '100%', height: '100%' };
-
-      if (isLargeScreenForPillarbox) {
-        scaleFactor = heightScale; // Scale root font by height
-        // Calculate the width the game area should occupy to maintain its design aspect ratio
-        // when scaled to fit the screen height.
-        const pillarboxedWidth = DESIGN_TARGET_WIDTH * scaleFactor;
-        newGameStyle = {
-          width: `${pillarboxedWidth}px`,
-          height: `${currentHeight}px`, // It will fill height due to parent
-          margin: '0 auto' // Center it
-        };
-      } else {
-        scaleFactor = Math.min(widthScale, heightScale); // Fit content
-        // On smaller screens, GameTable's parent div takes w-screen h-screen,
-        // and GameTable's internal max-width (26.875rem) will apply.
-        // So, no specific style needed here for the wrapper beyond full size.
-      }
-      
+      // Set the root font size based on this scale factor
       document.documentElement.style.fontSize = `${BASE_ROOT_FONT_SIZE * scaleFactor}px`;
-      setGameAreaStyle(newGameStyle);
+
+      // The game area wrapper will take the scaled dimensions
+      const gameAreaWidth = DESIGN_TARGET_WIDTH * scaleFactor;
+      const gameAreaHeight = DESIGN_TARGET_HEIGHT * scaleFactor;
+
+      setGameAreaStyle({
+        width: `${gameAreaWidth}px`,
+        height: `${gameAreaHeight}px`,
+        // The parent div in App.tsx's return is already display:flex, justify-center, items-center
+        // which will center this gameAreaStyle div.
+      });
     };
 
     handleResize(); // Initial call
@@ -97,13 +86,13 @@ function App() {
   }
 
   // The outer div ensures full screen and provides a fallback background.
-  // The inner div (gameAreaWrapper) gets dynamic styles for width/centering (pillarboxing)
-  // and also uses flex to center GameTable if GameTable is narrower than it.
+  // It uses flex to center the gameAreaStyle div.
   return (
-    <div className="w-screen h-screen bg-gray-800 text-white"> {/* Removed relative positioning, Menu will be inside GameTable */}
+    <div className="w-screen h-screen bg-gray-800 text-white flex justify-center items-center">
       <div 
         style={gameAreaStyle} 
-        className="flex justify-center items-center h-full" // Ensure this wrapper also centers its child and takes full height
+        // This div now has explicit scaled width and height.
+        // GameTable inside it should be designed to fill this container (e.g., h-full, w-full).
       > 
         {/* Use restartTrigger in the key to force remount on restart */}
         {gameMode && (
