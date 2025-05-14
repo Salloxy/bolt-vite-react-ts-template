@@ -1,3 +1,58 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+:root {
+  /* Further Adjusted card sizes for mobile-first 9:16 layout */
+  --card-width: 4.5rem;    /* Approx 72px at 16px root font. Was 4.8rem */
+  --card-height: 6.3rem;   /* Approx 100.8px (maintaining 1.4 aspect ratio). Was 6.72rem */
+  --card-stack-offset: 1.08rem; /* Approx 17.28px. Was 1.15rem */
+  --card-stack-container-height: calc(var(--card-height) + 4 * var(--card-stack-offset)); /* Approx 10.62rem or 169.92px */
+
+  /* Base font sizes - these might also need adjustment for mobile-first, but let's start with cards */
+  --text-sm-responsive: 1rem; /* 16px */
+  --text-base-responsive: 1.125rem; /* 18px */
+  --text-lg-responsive: 1.25rem; /* 20px */
+  --text-xl-responsive: 1.5rem; /* 24px */
+  --text-2xl-responsive: 1.875rem; /* 30px */
+  --text-3xl-responsive: 2.25rem; /* 36px */
+}
+
+/* Utility class to apply card dimensions */
+.card-dimensions {
+  width: var(--card-width);
+  height: var(--card-height);
+}
+
+/* Utility class for the hand stack container */
+.hand-stack-container-dimensions {
+  width: var(--card-width); /* Stack container width is same as card width */
+  height: var(--card-stack-container-height);
+}
+
+/* General body/html styling for better responsiveness */
+html, body, #root {
+  width: 100%;
+  height: 100vh; /* Use viewport height for full screen coverage */
+  margin: 0;
+  padding: 0;
+  overflow: hidden; /* Prevent all scrolling on html, body */
+}
+
+#root {
+  width: 100%; /* Ensure #root also takes full dimensions */
+  height: 100%; /* Ensure #root also takes full dimensions */
+  display: flex; /* Can be useful for centering if #root has a single child that isn't full screen */
+  justify-content: center; /* Adjust as needed based on GameTable's behavior */
+  align-items: center; /* Adjust as needed */
+}
+
+body {
+  font-size: var(--text-base-responsive); /* Base font size */
+  background-color: #1a202c; /* Default background for the page */
+  color: white; /* Default text color if not overridden */
+}
+
+/* Removed .scalable-content-wrapper. GameTable will now be directly responsible for its layout. */
+/* The #root div will be the main container for the app. */
+/* GameTable should be designed to fill #root or manage its own full-screen presence. */

@@ -1,0 +1,6 @@
+# Place card image assets here.
+# Naming convention:
+# - Face cards: [Rank][Suit].png (e.g., AS.png, KH.png, TC.png)
+#   Ranks: A, K, Q, J, T, 9, 8, 7, 6, 5, 4, 3, 2
+#   Suits: S (Spades), H (Hearts), D (Diamonds), C (Clubs)
+# - Card back: card_back.png

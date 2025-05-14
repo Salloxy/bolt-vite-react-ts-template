@@ -1,0 +1,23 @@
+{
+  "extends": "./tsconfig.json", // Inherit common settings
+  "compilerOptions": {
+    "module": "NodeNext", // or CommonJS if preferred for Node.js environment
+    "moduleResolution": "NodeNext",
+    "outDir": "./dist/server", // Output directory for compiled server files
+    "rootDir": ".",     // Root directory of server source files
+    "noEmit": false,           // Ensure files are emitted
+    "sourceMap": true,         // Generate source maps for easier debugging
+    "esModuleInterop": true,   // Allows default imports from CommonJS modules
+    "skipLibCheck": true,      // Skip type checking of declaration files
+    "forceConsistentCasingInFileNames": true,
+    "strict": true,
+    // "target": "ES2020" // Or a newer version as appropriate
+  },
+  "include": [
+    "server/**/*.ts",
+    "src/types/**/*.ts",
+    "src/lib/utils.ts",
+    "src/lib/pokerEvaluator.ts"
+  ], // Files to include in compilation
+  "exclude": ["node_modules", "dist"] // Files/directories to exclude
+}
