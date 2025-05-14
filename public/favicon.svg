@@ -1,0 +1,28 @@
+<svg width="32" height="32" viewBox="6.5 9.5 13 13" xmlns="http://www.w3.org/2000/svg">
+  <style>
+    .card { fill: white; stroke: #333333; stroke-width: 0.5; rx: 1; ry: 1; }
+    .text-red { fill: red; }
+    .text-black { fill: black; }
+    .rank, .suit-symbol {
+      font-family: Arial, Helvetica, sans-serif;
+      font-weight: bold;
+      text-anchor: middle;
+    }
+    .rank { font-size: 4px; }
+    .suit-symbol { font-size: 3.5px; } /* Star symbol */
+  </style>
+
+  <!-- Black Joker - drawn first to be behind the red one -->
+  <g transform="translate(7, 10) rotate(-10 4 12)">
+    <rect class="card" x="0" y="0" width="8" height="12"/>
+    <text x="4" y="5" class="rank text-black">J</text>
+    <text x="4" y="9" class="suit-symbol text-black">★</text>
+  </g>
+
+  <!-- Red Joker -->
+  <g transform="translate(11, 10) rotate(10 4 12)">
+    <rect class="card" x="0" y="0" width="8" height="12"/>
+    <text x="4" y="5" class="rank text-red">J</text>
+    <text x="4" y="9" class="suit-symbol text-red">★</text>
+  </g>
+</svg>

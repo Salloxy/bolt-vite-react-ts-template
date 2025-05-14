@@ -6,7 +6,7 @@ import { evaluateHand, compareEvaluatedHands } from '../lib/pokerEvaluator';
 import io, { Socket } from 'socket.io-client';
 
 // For local development, use localhost. For production, connect to the same origin.
-const SERVER_URL = process.env.NODE_ENV === 'production' ? window.location.origin : 'http://localhost:3000';
+const SERVER_URL = process.env.NODE_ENV === 'production' ? window.location.origin : 'http://192.168.1.56:3000';
 
 // Helper function for AI strategic evaluation
 const calculateHandPotential = (
