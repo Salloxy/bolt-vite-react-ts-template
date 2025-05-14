@@ -229,19 +229,21 @@ const GameTable: React.FC<GameTableProps> = ({ isOnline, onGoHome, onRestartGame
 
   return (
     <div 
-      className="relative flex flex-col h-full bg-green-700 text-white pt-1 px-1 pb-2 items-center justify-between"  // Added relative
+      className="relative flex flex-col h-full bg-green-700 text-white items-center p-1" // Removed justify-between, adjusted padding
       style={{ maxWidth: '26.875rem' }}
     >
       <Menu onGoHome={onGoHome} onRestartGame={onRestartGame} />
-      <div className="w-full mt-4"> {/* Reduced mt-8 to mt-4 to move content up */}
+      
+      {/* Opponent Area - give it a class for potential specific styling if needed */}
+      <div className="w-full player-area opponent-area my-1"> {/* Added my-1 for some spacing */}
         <h2 className="font-semibold text-center mb-1" style={{ fontSize: 'var(--text-xl-responsive)' }}>
           {isOnline ? "OPPONENT" : "OPPONENT (AI)"}
         </h2>
         {renderPlayerHands(opponentPlayer, true)}
       </div>
 
-      {/* Middle Area: Game Info / Game Over Display */}
-      <div className="game-info-area w-full flex flex-col items-center space-y-0.5"> {/* Reduced my-1 and space-y-1 to space-y-0.5 */}
+      {/* Middle Area: Game Info / Game Over Display - This will be the flexible part */}
+      <div className="game-info-area w-full flex-grow flex flex-col items-center justify-center space-y-0.5 overflow-y-auto py-1"> {/* Added flex-grow, justify-center, overflow-y-auto, py-1 */}
         {error && <p className="text-red-300 bg-red-800 p-1 rounded text-center my-1" style={{ fontSize: 'var(--text-base-responsive)' }}>{error}</p>}
 
         {gameState.gamePhase === 'gameOver' && gameResults ? (
@@ -381,7 +383,8 @@ const GameTable: React.FC<GameTableProps> = ({ isOnline, onGoHome, onRestartGame
         )}
       </div>
 
-      <div className="w-full">
+      {/* Your Area - give it a class */}
+      <div className="w-full player-area self-area my-1"> {/* Added my-1 for some spacing */}
         <h2 className="font-semibold text-center mb-1" style={{ fontSize: 'var(--text-xl-responsive)' }}>
           YOU
         </h2>
