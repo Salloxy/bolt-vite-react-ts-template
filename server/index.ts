@@ -107,12 +107,14 @@ const createNewGame = (player1Socket: Socket, player2Socket: Socket): GameRoom =
 };
 
 // Serve static files from the Vite build output directory
-app.use(express.static(path.join(__dirname, '../../dist')));
+// __dirname here is /opt/render/project/dist/server/server
+// We need to go up three levels to /opt/render/project/ and then into /dist
+app.use(express.static(path.join(__dirname, '../../../dist')));
 
 // SPA Fallback: For any GET request that doesn't match a static file or API route,
 // serve the index.html file. This is crucial for client-side routing.
 app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, '../../dist', 'index.html'));
+  res.sendFile(path.join(__dirname, '../../../dist', 'index.html'));
 });
 
 io.on('connection', (socket) => {
