@@ -23,8 +23,6 @@ const io = new SocketIOServer(server, {
 
 const PORT = process.env.PORT || 3000;
 
-const REMATCH_WINDOW_MS = 10000; // 10 seconds for rematch window
-
 interface RoomPlayerInfo {
   socketId: string;
   playerNumber: 1 | 2;
@@ -34,12 +32,6 @@ interface GameRoom {
   id: string;
   players: RoomPlayerInfo[];
   gameState: GameState;
-  rematchInfo?: {
-    requests: { [socketId: string]: boolean }; // Tracks which player(s) requested a rematch
-    agreedCount: number;
-    offerTimestamp: number; // When the 10s window started
-    timerId?: NodeJS.Timeout; // Server-side timer for cleanup
-  };
   turnTimerId?: NodeJS.Timeout; // Timer for the current player's turn
   turnTimerDuration: number; // Duration of the turn in ms
 }
@@ -174,18 +166,43 @@ io.on('connection', (socket) => {
     io.to(room.id).emit('gameStateUpdate', room.gameState);
   };
 
-  const clearRoomRematchTimer = (room: GameRoom) => {
-    if (room.rematchInfo?.timerId) {
-      clearTimeout(room.rematchInfo.timerId);
-      delete room.rematchInfo.timerId;
-    }
-  };
-
   socket.on('findMatch', () => {
     console.log(`Player ${socket.id} is looking for a match.`);
-    // Ensure player is not already in queue or a game
+
+    // --- BEGIN MODIFICATION: Proactively clean up player's old sessions ---
+    // Remove from queue if present
+    const queueIndex = matchmakingQueue.findIndex((s: Socket) => s.id === socket.id);
+    if (queueIndex !== -1) {
+      matchmakingQueue.splice(queueIndex, 1);
+      console.log(`Player ${socket.id} removed from matchmaking queue before new findMatch.`);
+    }
+
+    // Remove from any existing room
+    for (const [roomId, room] of rooms.entries()) {
+      const playerInRoom = room.players.find((p: RoomPlayerInfo) => p.socketId === socket.id);
+      if (playerInRoom) {
+        console.log(`Player ${socket.id} was in room ${roomId}. Cleaning up before new findMatch.`);
+        clearTurnTimer(room); // Clear any active timer for that room
+        
+        // Notify other player in that old room, if any, that their opponent left for a new game
+        const otherPlayer = room.players.find((p: RoomPlayerInfo) => p.socketId !== socket.id);
+        if (otherPlayer && io.sockets.sockets.get(otherPlayer.socketId)) {
+          io.to(otherPlayer.socketId).emit('opponentDisconnected', 'Your opponent left to find a new game.');
+        }
+        rooms.delete(roomId);
+        console.log(`Room ${roomId} closed because player ${socket.id} started a new match search.`);
+        // No need to break here, though a player should only be in one room.
+      }
+    }
+    // --- END MODIFICATION ---
+
+    // Ensure player is not already in queue or a game (this check might seem redundant now, but good for sanity)
+    // Note: The previous cleanup should handle most cases. This check remains as a safeguard.
     if (matchmakingQueue.find((s: Socket) => s.id === socket.id) || Array.from(rooms.values()).find((r: GameRoom) => r.players.some((p: RoomPlayerInfo) => p.socketId === socket.id))) {
-      socket.emit('error', 'Already in queue or game.');
+      // This condition should ideally not be met if the cleanup above worked.
+      // If it is met, it implies a more complex state issue or race condition.
+      console.warn(`Player ${socket.id} still found in queue/game after cleanup attempt. Emitting error.`);
+      socket.emit('error', 'Already in queue or game. Cleanup might have failed.');
       return;
     }
 
@@ -357,42 +374,17 @@ io.on('connection', (socket) => {
       room.gameState.gamePhase = 'gameOver';
       room.gameState.winnerMessage = overallWinnerMsg;
       room.gameState.individualHandWinners = handEvalResults.individualWinners;
-      room.gameState.rematchState = 'can_offer'; // Game just ended, rematch can be offered
-      room.gameState.rematchAgreedCount = 0;    // No one has agreed yet
+      
+      io.to(room.id).emit('gameStateUpdate', room.gameState); // Send final game state
+      console.log(`Game ${room.id} ended. Winner: ${overallWinnerMsg}.`);
 
-      // Initialize rematch info on the server-side room object
-      room.rematchInfo = {
-        requests: {},
-        agreedCount: 0,
-        offerTimestamp: Date.now(),
-      };
-
-      io.to(room.id).emit('gameStateUpdate', room.gameState); // Send final game state with rematch info
-      console.log(`Game ${room.id} ended. Winner: ${overallWinnerMsg}. Rematch window open.`);
-
-      // Set a server-side timer to handle rematch window timeout
-      clearRoomRematchTimer(room); // Clear any existing timer for this room
-      room.rematchInfo.timerId = setTimeout(() => {
-        if (rooms.has(room.id) && room.rematchInfo && room.rematchInfo.agreedCount < 2) {
-          console.log(`Rematch window for room ${room.id} timed out on server.`);
-          io.to(room.id).emit('rematch_offer_expired', { gameId: room.id });
-
-          // Update gameState to reflect timeout
-          room.gameState.rematchState = 'offer_timed_out';
-          room.gameState.rematchAgreedCount = 0;
-          io.to(room.id).emit('gameStateUpdate', room.gameState); // Notify clients
-
-          delete room.rematchInfo; // Clean up rematch specific info
-
-          // Decide on further room cleanup, e.g., delete after another short delay
-          setTimeout(() => {
-            if (rooms.has(room.id) && !room.rematchInfo) { // Only delete if no new rematch process started
-                rooms.delete(room.id);
-                console.log(`Room ${room.id} closed after rematch timeout.`);
-            }
-          }, 5000); // Short delay before closing room fully
+      // Game is over, can clean up room after a delay
+      setTimeout(() => {
+        if (rooms.has(room.id)) {
+            rooms.delete(room.id);
+            console.log(`Room ${room.id} closed after game over.`);
         }
-      }, REMATCH_WINDOW_MS + 1000); // Give a little buffer
+      }, 5000); // Short delay before closing room fully
   };
 
 // Server-side equivalent of canPlaceCardInHand from useGameLogic
@@ -445,164 +437,17 @@ const canPlaceCardInHandServer = (player: Player, handIndex: number, targetSlot:
       if (playerInRoom) {
         console.log(`Player ${socket.id} disconnected from room ${roomId}.`);
         clearTurnTimer(room); // Clear turn timer if active
-        clearRoomRematchTimer(room); // Clear rematch timer if active
-
+        
         // Notify other player
         const otherPlayer = room.players.find((p: RoomPlayerInfo) => p.socketId !== socket.id);
         if (otherPlayer) {
           io.to(otherPlayer.socketId).emit('opponentDisconnected', 'Your opponent has disconnected. Game over.');
-           // If a rematch was in progress, notify the other player it's cancelled due to disconnect
-          if (room.rematchInfo && room.rematchInfo.agreedCount > 0) {
-            io.to(otherPlayer.socketId).emit('rematch_cancelled', { byPlayerId: socket.id });
-          }
         }
         // Clean up room
         rooms.delete(roomId);
         console.log(`Room ${roomId} closed due to disconnect.`);
         break;
       }
-    }
-  });
-
-  socket.on('request_rematch', ({ gameId, requestingPlayerId }: { gameId: string, requestingPlayerId: string }) => {
-    const room = rooms.get(gameId);
-    if (!room || room.gameState.gamePhase !== 'gameOver') {
-      socket.emit('error', 'Game not found or not over.');
-      return;
-    }
-    if (!room.rematchInfo) { // Rematch window might have closed or not initialized
-        socket.emit('error', 'Rematch not available for this game.');
-        // Optionally send an offer_timed_out if appropriate
-        // socket.emit('rematch_offer_expired', { gameId });
-        return;
-    }
-
-    if (Date.now() - room.rematchInfo.offerTimestamp > REMATCH_WINDOW_MS) {
-      io.to(room.id).emit('rematch_offer_expired', { gameId });
-      room.gameState.rematchState = 'offer_timed_out';
-      room.gameState.rematchAgreedCount = 0;
-      io.to(room.id).emit('gameStateUpdate', room.gameState);
-      clearRoomRematchTimer(room);
-      delete room.rematchInfo;
-      return;
-    }
-
-    if (!room.rematchInfo.requests[requestingPlayerId]) {
-      room.rematchInfo.requests[requestingPlayerId] = true;
-      room.rematchInfo.agreedCount++;
-      room.gameState.rematchAgreedCount = room.rematchInfo.agreedCount; // Update gameState field
-    }
-
-    console.log(`Player ${requestingPlayerId} requested rematch for game ${gameId}. Agreed: ${room.rematchInfo.agreedCount}`);
-
-    if (room.rematchInfo.agreedCount === 1) {
-      // First player to agree. Notify the other player they received an offer.
-      const otherPlayerSocketId = room.players.find((p: RoomPlayerInfo) => p.socketId !== requestingPlayerId)?.socketId;
-      if (otherPlayerSocketId) {
-        io.to(otherPlayerSocketId).emit('rematch_offer_received', {
-          fromPlayerId: requestingPlayerId,
-          agreedCount: room.rematchInfo.agreedCount
-        });
-      }
-      // Notify the requester that their offer is sent (client already does this optimistically)
-      // We can send a status update to confirm.
-      socket.emit('rematch_status_update', {
-          gameId,
-          agreedCount: room.rematchInfo.agreedCount,
-          newRematchState: 'offer_sent' // For the requester
-      });
-    } else if (room.rematchInfo.agreedCount === 2) {
-      console.log(`Both players in room ${gameId} agreed to a rematch.`);
-      clearRoomRematchTimer(room); // Stop the timeout timer
-
-      const player1Sock = io.sockets.sockets.get(room.players[0].socketId);
-      const player2Sock = io.sockets.sockets.get(room.players[1].socketId);
-
-      if (player1Sock && player2Sock) {
-        io.to(gameId).emit('rematch_accepted', { gameId }); // Notify clients rematch is fully accepted
-
-        const oldRoomId = room.id;
-        rooms.delete(oldRoomId); // Delete the old room
-        console.log(`Old room ${oldRoomId} deleted for rematch.`);
-
-        const newRoom = createNewGame(player1Sock, player2Sock);
-        io.to(newRoom.id).emit('gameStart', newRoom.gameState);
-        startTurnTimer(newRoom); // Start timer for the new game
-      } else {
-        console.error('Sockets for rematch not found. Players might have disconnected.');
-        // If one disconnected, the disconnect handler should clean up.
-        // If both somehow disconnected right at this moment, this branch might be hit.
-        if (room) rooms.delete(room.id); // Clean up the room if it still exists
-      }
-    }
-  });
-
-  socket.on('cancel_rematch_request', ({ gameId, cancellingPlayerId }: { gameId: string, cancellingPlayerId: string }) => {
-    const room = rooms.get(gameId);
-    if (!room || !room.rematchInfo || !room.rematchInfo.requests[cancellingPlayerId]) {
-      return;
-    }
-
-    room.rematchInfo.requests[cancellingPlayerId] = false;
-    room.rematchInfo.agreedCount--;
-    room.gameState.rematchAgreedCount = room.rematchInfo.agreedCount;
-
-    // Notify self of cancellation success
-    socket.emit('rematch_cancelled', { byPlayerId: cancellingPlayerId });
-    socket.emit('rematch_status_update', { gameId, agreedCount: room.rematchInfo.agreedCount, newRematchState: 'cancelled_by_self' });
-
-
-    // Notify other player
-    const otherPlayerSocketId = room.players.find((p: RoomPlayerInfo) => p.socketId !== cancellingPlayerId)?.socketId;
-    if (otherPlayerSocketId) {
-      io.to(otherPlayerSocketId).emit('rematch_cancelled', { byPlayerId: cancellingPlayerId });
-      // Other player might revert to 'can_offer' or 'none' depending on server logic / client interpretation
-      io.to(otherPlayerSocketId).emit('rematch_status_update', { gameId, agreedCount: room.rematchInfo.agreedCount, newRematchState: 'can_offer' }); // Or 'none'
-    }
-    console.log(`Player ${cancellingPlayerId} cancelled rematch for game ${gameId}. Agreed: ${room.rematchInfo.agreedCount}`);
-  });
-
-  socket.on('decline_rematch', ({ gameId, decliningPlayerId }: { gameId: string, decliningPlayerId: string }) => {
-    const room = rooms.get(gameId);
-    if (!room || !room.rematchInfo) {
-      return;
-    }
-    clearRoomRematchTimer(room); // Stop rematch timeout
-
-    console.log(`Player ${decliningPlayerId} declined rematch for game ${gameId}`);
-    room.gameState.rematchAgreedCount = 0; // Reset agreed count
-
-    // Notify both players of the decline
-    room.players.forEach((pInfo: RoomPlayerInfo) => {
-        const targetSock = io.sockets.sockets.get(pInfo.socketId);
-        if (targetSock) {
-            targetSock.emit('rematch_declined', { byPlayerId: decliningPlayerId });
-            targetSock.emit('rematch_status_update', {
-                gameId,
-                agreedCount: 0,
-                newRematchState: pInfo.socketId === decliningPlayerId ? 'declined_by_self' : 'declined_by_opponent'
-            });
-        }
-    });
-
-    delete room.rematchInfo; // Rematch process ended
-    // Room can be cleaned up after a short delay
-    setTimeout(() => {
-        if(rooms.has(gameId) && !rooms.get(gameId)?.rematchInfo) { // ensure no new rematch started
-            rooms.delete(gameId);
-            console.log(`Room ${gameId} closed after rematch declined.`);
-        }
-    }, 5000);
-  });
-
-  socket.on('rematch_timeout', ({ gameId }: { gameId: string }) => {
-    const room = rooms.get(gameId);
-    if (room && room.rematchInfo && room.rematchInfo.offerTimestamp) {
-      // This event is client-reported, server has its own authoritative timer.
-      // We can log it, but server's timer in handleGameEvaluation is the source of truth for cleanup.
-      console.log(`Client reported rematch timeout for game ${gameId}. Server timer is authoritative.`);
-      // If server timer hasn't fired, this client report might be early or redundant.
-      // Server will emit 'rematch_offer_expired' when its own timer fires.
     }
   });
 

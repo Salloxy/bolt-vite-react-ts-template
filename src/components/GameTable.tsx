@@ -1,7 +1,7 @@
 // src/components/GameTable.tsx
 import React, { useEffect, useState } from 'react';
 import useGameLogic from '../hooks/useGameLogic';
-import { Card, Player, Hand, RematchState } from '../types'; // Added RematchState
+import { Card, Player, Hand } from '../types';
 import CardDisplay from './CardDisplay'; // Import the new CardDisplay component
 import Menu from './Menu'; // Import the Menu component
 
@@ -23,13 +23,6 @@ const GameTable: React.FC<GameTableProps> = ({ isOnline, onGoHome, onRestartGame
     error, 
     setError, 
     gameResults,
-    rematchState, 
-    rematchAgreedCount, // Destructure new agreed count
-    rematchOfferTimeRemaining,
-    requestRematch, // This function now handles offering/accepting
-    acceptRematch, // Kept for now, but requestRematch might consolidate its direct use
-    declineRematch,
-    cancelRematchRequest,
     cancelMatchmaking // Destructure cancelMatchmaking
   } = useGameLogic({ isOnlineMultiplayer: isOnline, onGoHome });
   const [stackOffsetPx, setStackOffsetPx] = useState(16); // Default to 1rem (16px)
@@ -39,11 +32,12 @@ const GameTable: React.FC<GameTableProps> = ({ isOnline, onGoHome, onRestartGame
   useEffect(() => {
     let timerInterval: NodeJS.Timeout | null = null;
     // Check for gameState inside the effect
-    if (gameState && gameState.currentPlayerId === (isOnline ? playerId : 'player1') && gameState.turnStartTime && gameState.turnTimerEndsAt && gameState.gamePhase === 'playing') {
+    // Condition simplified to run timer if game is playing and timer data exists, regardless of whose turn.
+    if (gameState && gameState.turnTimerEndsAt && gameState.gamePhase === 'playing') {
       const calculateRemaining = () => {
         const now = Date.now();
         const endsAt = gameState.turnTimerEndsAt!;
-        const remainingSeconds = Math.max(0, Math.ceil((endsAt - now) / 1000));
+        const remainingSeconds = Math.max(0, Math.round((endsAt - now) / 1000)); // Changed Math.floor to Math.round
         setTurnTimeRemaining(remainingSeconds);
         if (remainingSeconds <= 0) {
           if (timerInterval) clearInterval(timerInterval);
@@ -57,7 +51,7 @@ const GameTable: React.FC<GameTableProps> = ({ isOnline, onGoHome, onRestartGame
     return () => {
       if (timerInterval) clearInterval(timerInterval);
     };
-  }, [gameState, playerId, isOnline]); // Dependencies updated
+  }, [gameState]); // Dependencies updated: relies on gameState changes.
 
   useEffect(() => {
     const updateOffset = () => {
@@ -251,65 +245,14 @@ const GameTable: React.FC<GameTableProps> = ({ isOnline, onGoHome, onRestartGame
             <p className="mb-2 text-center font-bold" style={{ fontSize: 'var(--text-base-responsive)' }}>
               {gameResults}
             </p>
-            {/* Rematch UI Section */}
             {isOnline && gameState.gamePhase === 'gameOver' && (
               <div className="mt-2 space-y-2 text-center">
-                {/* Timer display for rematch window */}
-                {(rematchState === 'can_offer' || rematchState === 'offer_sent' || rematchState === 'offer_received') && rematchOfferTimeRemaining > 0 && (
-                  <p className="text-sm">Time for rematch: {rematchOfferTimeRemaining}s</p>
-                )}
-
-                {/* Rematch Button / Status */}
-                {rematchState === 'can_offer' && rematchOfferTimeRemaining > 0 && (
-                  <button onClick={requestRematch} className="bg-yellow-500 hover:bg-yellow-600 text-white font-bold py-1.5 px-3 rounded-lg">
-                    REMATCH ({rematchAgreedCount}/2)
-                  </button>
-                )}
-                {rematchState === 'offer_sent' && rematchOfferTimeRemaining > 0 && (
-                  <>
-                    <p className="text-sm">Rematch offer sent! Waiting for opponent... ({rematchAgreedCount}/2)</p>
-                    <button onClick={cancelRematchRequest} className="bg-gray-500 hover:bg-gray-600 text-white font-bold py-1 px-2 rounded text-xs">Cancel Offer</button>
-                  </>
-                )}
-                {rematchState === 'offer_received' && rematchOfferTimeRemaining > 0 && (
-                  <>
-                    <p className="text-sm">Opponent wants a rematch! ({rematchAgreedCount}/2)</p>
-                    <div className="space-x-2">
-                      <button onClick={requestRematch} className="bg-green-500 hover:bg-green-600 text-white font-bold py-1.5 px-3 rounded-lg">
-                        Accept Rematch ({rematchAgreedCount}/2)
-                      </button>
-                      <button onClick={declineRematch} className="bg-red-500 hover:bg-red-600 text-white font-bold py-1.5 px-3 rounded-lg">Decline</button>
-                    </div>
-                  </>
-                )}
-
-                {/* Other Rematch States */}
-                {rematchState === 'accepted' && <p className="text-sm text-green-300">Rematch accepted! ({rematchAgreedCount}/2) Starting new game...</p>}
-                {rematchState === 'declined_by_opponent' && <p className="text-sm text-red-300">Opponent declined the rematch.</p>}
-                {rematchState === 'declined_by_self' && <p className="text-sm">You declined the rematch.</p>}
-                {rematchState === 'cancelled_by_self' && <p className="text-sm">You cancelled the rematch offer.</p>}
-                {rematchState === 'cancelled_by_opponent' && <p className="text-sm text-red-300">Opponent cancelled their rematch offer.</p>}
-                
-                {rematchState === 'offer_timed_out' && (
-                    <p className="text-sm text-yellow-300">Rematch window closed.</p>
-                )}
-                
-                {/* Show "Find New Online Match" if rematch is not active, has concluded, or timed out */}
-                {(rematchState === 'none' || 
-                  rematchState === 'declined_by_opponent' || 
-                  rematchState === 'declined_by_self' || 
-                  rematchState === 'cancelled_by_self' || 
-                  rematchState === 'cancelled_by_opponent' || 
-                  rematchState === 'offer_timed_out' ||
-                  (rematchState === 'accepted' && rematchAgreedCount < 2) // Edge case if somehow accepted but not 2/2
-                 ) && (
-                  <button
-                    onClick={startGame} // This will now reset state and find a new match
-                    className="bg-purple-600 hover:bg-purple-700 text-white font-bold py-1.5 px-3 rounded-lg shadow-lg"
-                  >
-                    Find New Online Match
-                  </button>
-                )}
+                <button
+                  onClick={startGame} // This will now reset state and find a new match
+                  className="bg-purple-600 hover:bg-purple-700 text-white font-bold py-1.5 px-3 rounded-lg shadow-lg"
+                >
+                  Find New Online Match
+                </button>
               </div>
             )}
             {!isOnline && ( // "Play Again vs AI" button for local games
@@ -326,7 +269,7 @@ const GameTable: React.FC<GameTableProps> = ({ isOnline, onGoHome, onRestartGame
           <>
             <p className="text-center" style={{ fontSize: 'var(--text-base-responsive)' }}>
               Turn: {isMyTurn ? "Your Turn" : "Opponent's Turn"}
-              {isMyTurn && turnTimeRemaining !== null && gameState.gamePhase === 'playing' && (
+              {turnTimeRemaining !== null && gameState.gamePhase === 'playing' && (
                 <span className="ml-2 font-bold text-yellow-300">({turnTimeRemaining}s)</span>
               )}
             </p>

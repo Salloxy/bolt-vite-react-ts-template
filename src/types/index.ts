@@ -32,8 +32,6 @@ export interface GameState {
   heldCard?: Card | null; // Card currently held by the active player (synced from server in online)
   winnerMessage?: string; // Overall game winner message
   individualHandWinners?: (string | null)[]; // Winner for each of the 5 hands
-  rematchState?: RematchState; // State of the rematch process
-  rematchAgreedCount?: number; // Number of players who agreed to a rematch (0, 1, or 2)
   turnStartTime?: number; // Timestamp when the current turn started
   turnTimerEndsAt?: number; // Timestamp when the current turn timer will end
   // Potentially add more game state info like scores, messages, etc.
@@ -65,15 +63,3 @@ export interface EvaluatedHand {
   values: Rank[]; // Ranks involved in the hand (e.g., [K, K] for a pair of Kings)
   description: string; // e.g., "Pair of Kings"
 }
-
-export type RematchState = 
-  | 'none'          // No rematch activity
-  | 'can_offer'     // Game ended, current player can offer a rematch
-  | 'offer_sent'    // Current player sent an offer, waiting for opponent
-  | 'offer_received'// Opponent sent an offer, current player can accept/decline
-  | 'accepted'      // Rematch accepted by both, waiting for server to start new game
-  | 'declined_by_opponent' // Opponent declined the offer
-  | 'declined_by_self'   // Current player declined the offer
-  | 'cancelled_by_self' // Current player cancelled their sent offer
-  | 'cancelled_by_opponent' // Opponent cancelled their sent offer
-  | 'offer_timed_out';   // Offer (sent or received) timed out

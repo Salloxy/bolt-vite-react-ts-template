@@ -1,6 +1,6 @@
 // src/hooks/useGameLogic.ts
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { GameState, Player, Hand, Card, EvaluatedHand, PokerHandRank, Rank, RematchState } from '../types'; // Added RematchState
+import { GameState, Player, Hand, Card, EvaluatedHand, PokerHandRank, Rank } from '../types';
 import { createDeck, shuffleDeck, getRankValue } from '../lib/utils'; // Added getRankValue
 import { evaluateHand, compareEvaluatedHands } from '../lib/pokerEvaluator';
 import io, { Socket } from 'socket.io-client';
@@ -181,91 +181,7 @@ const useGameLogic = ({ isOnlineMultiplayer = false, onGoHome }: UseGameLogicPro
   const [heldCard, setHeldCard] = useState<Card | null>(null); // Card drawn by player, waiting to be placed
   const [error, setError] = useState<string | null>(null); // For displaying errors to the user
   const [gameResults, setGameResults] = useState<string | null>(null); // To store overall game winner message
-  const [rematchState, setRematchState] = useState<RematchState>('none');
-  const [rematchAgreedCount, setRematchAgreedCount] = useState<number>(0); // New state for agreed count
-  const [rematchOfferTimerId, setRematchOfferTimerId] = useState<NodeJS.Timeout | null>(null);
-  const [rematchOfferTimeRemaining, setRematchOfferTimeRemaining] = useState<number>(0);
-
-  const clearRematchTimer = useCallback(() => {
-    if (rematchOfferTimerId) {
-      clearInterval(rematchOfferTimerId);
-      setRematchOfferTimerId(null);
-    }
-    setRematchOfferTimeRemaining(0);
-  }, [rematchOfferTimerId]);
-
-  // Effect to countdown timer for rematch offers
-  useEffect(() => {
-    let currentIntervalId: NodeJS.Timeout | null = null;
-
-    if (isOnlineMultiplayer && (rematchState === 'can_offer' || rematchState === 'offer_sent' || rematchState === 'offer_received')) {
-      // Only start a new interval if time is positive.
-      // rematchOfferTimeRemaining is read here to get its current value when the effect runs.
-      if (rematchOfferTimeRemaining > 0) {
-        currentIntervalId = setInterval(() => {
-          setRematchOfferTimeRemaining(prevTime => {
-            if (prevTime <= 1) {
-              // Time has run out.
-              // The interval will be cleared by this effect's cleanup function
-              // when rematchState changes to 'offer_timed_out'.
-              setRematchState('offer_timed_out');
-              if (socket && gameState?.id) {
-                socket.emit('rematch_timeout', { gameId: gameState.id });
-              }
-              return 0; // Stop countdown at 0
-            }
-            return prevTime - 1; // Continue countdown
-          });
-        }, 1000);
-        // Store the ID of the created interval so clearRematchTimer can access it if needed.
-        setRematchOfferTimerId(currentIntervalId);
-      } else if (rematchOfferTimeRemaining === 0) {
-        // If, upon entering 'offer_sent' or 'offer_received' state, the time is already 0,
-        // then transition to 'offer_timed_out'.
-        // This handles cases where the timer might have been cleared or expired very quickly.
-        setRematchState('offer_timed_out');
-        // Note: The server notification for timeout is primarily handled when the active timer runs down.
-      }
-    } else {
-      // If rematchState is not 'offer_sent' or 'offer_received',
-      // ensure any stored timer ID is cleared from state and time remaining is reset.
-      // The actual interval clearing is handled by the cleanup function below.
-      if (rematchOfferTimerId !== null) {
-        setRematchOfferTimerId(null);
-      }
-      if (rematchOfferTimeRemaining > 0) {
-        setRematchOfferTimeRemaining(0);
-      }
-    }
-
-    // Cleanup function for this effect.
-    return () => {
-      if (currentIntervalId) {
-        clearInterval(currentIntervalId);
-      }
-      // When the effect re-runs (e.g., rematchState changes) or the component unmounts,
-      // if this effect instance had an active timer (currentIntervalId was set),
-      // we ensure the global rematchOfferTimerId state is also nulled if it held this timer's ID.
-      // This helps keep rematchOfferTimerId state consistent.
-      // However, clearRematchTimer also handles setting rematchOfferTimerId to null.
-      // A simple approach is to nullify it if the currentIntervalId was the one stored.
-      // This check might be overly complex; setRematchOfferTimerId(null) in the else block above
-      // when state is not offer_sent/received might be sufficient.
-      // For safety, if this effect's timer was active, ensure its ID is cleared from state on cleanup.
-      // This is primarily to ensure that if clearRematchTimer is called, it doesn't try to clear an ID
-      // that this effect's cleanup has already handled.
-      // The `else` block above already sets rematchOfferTimerId to null when not in active timer states.
-    };
-    // Dependencies:
-    // - rematchState: The primary driver for starting/stopping the timer.
-    // - isOnlineMultiplayer, socket, gameState?.id: Conditions and actions within the effect.
-    // - rematchOfferTimeRemaining (read, not a direct trigger for re-running setup):
-    //   Its current value is used when the effect runs due to other dependency changes.
-    //   The linter might suggest adding it. If issues arise, it can be refactored using useRef
-    //   to hold its value if only the initial value at the time of interval creation is needed.
-    //   For now, this structure is common for interval effects.
-  }, [rematchState, isOnlineMultiplayer, socket, gameState?.id]); // rematchOfferTimeRemaining is intentionally omitted as a direct dep for setup
-
+  
   // Keep playerIdRef updated
   useEffect(() => {
     playerIdRef.current = playerId;
@@ -327,35 +243,9 @@ const useGameLogic = ({ isOnlineMultiplayer = false, onGoHome }: UseGameLogicPro
           });
         }
 
-        setGameState(prevGameState => {
-            if (prevGameState?.id !== updatedGameState.id) { // If it's a new game (e.g. after rematch)
-            setRematchState('none'); // Reset rematch state for the new game
-            setRematchAgreedCount(0); // Reset agreed count for the new game
-            clearRematchTimer();
-          }
-          // Update rematchAgreedCount if present in the new game state
-          if (updatedGameState.rematchAgreedCount !== undefined) {
-            setRematchAgreedCount(updatedGameState.rematchAgreedCount);
-          }
-          return updatedGameState;
-        });
+        setGameState(updatedGameState);
         // If game state update includes results, update gameResults
         if (updatedGameState.gamePhase === 'gameOver' && updatedGameState.winnerMessage) {
-            clearRematchTimer(); // Clear previous timer state first (sets time to 0)
-            
-            // Check if the game ended normally (not by disconnect) to offer rematch
-            const opponentStillConnected = updatedGameState.players.length === 2; // Basic check
-            if (isOnlineMultiplayer && opponentStillConnected && !updatedGameState.winnerMessage?.toLowerCase().includes('disconnected')) {
-              setRematchOfferTimeRemaining(10); // Set time for the new offer window
-              // Server should ideally initialize rematchAgreedCount to 0 for the game
-              setRematchAgreedCount(updatedGameState.rematchAgreedCount !== undefined ? updatedGameState.rematchAgreedCount : 0);
-              setRematchState('can_offer'); // Set state to trigger timer effect with new time
-            } else {
-              setRematchState('none'); // No rematch if disconnect or local game
-              setRematchAgreedCount(0);
-              // rematchOfferTimeRemaining is already 0 due to clearRematchTimer() above
-            }
-
             let finalMsg = updatedGameState.winnerMessage; // Default to server's message
             let clientCalculatedResult = false;
             const currentPId = playerIdRef.current; // Use ref for current playerId
@@ -422,75 +312,8 @@ const useGameLogic = ({ isOnlineMultiplayer = false, onGoHome }: UseGameLogicPro
         setGameResults(null);
         setError(null);
         setHeldCard(null);
-        setRematchState('none'); // Reset rematch state when a new game starts
-        setRematchAgreedCount(0); // Reset agreed count
-        clearRematchTimer();
       });
       
-      // Listener for server updating rematch status (e.g., count of players who agreed)
-      newSocket.on('rematch_status_update', ({ gameId, agreedCount, newRematchState }: { gameId: string, agreedCount: number, newRematchState?: RematchState }) => {
-        if (gameStateRef.current?.id === gameId) {
-          console.log(`Rematch status update for game ${gameId}: ${agreedCount} players agreed.`);
-          setRematchAgreedCount(agreedCount);
-          if (newRematchState) {
-            setRematchState(newRematchState);
-          }
-          // If agreedCount is 2, server should soon send 'gameStart' for the new game.
-          // Client might transition to an 'accepted' or 'starting_new_game' state here if needed,
-          // or just wait for gameStart.
-          if (agreedCount === 2) {
-            setRematchState('accepted'); // Both agreed, waiting for new game
-            clearRematchTimer();
-          }
-        }
-      });
-      
-      newSocket.on('rematch_offer_received', ({ fromPlayerId, agreedCount }: { fromPlayerId: string, agreedCount: number }) => {
-        console.log(`Rematch offer received from ${fromPlayerId}, total agreed: ${agreedCount}`);
-        setRematchState('offer_received');
-        setRematchAgreedCount(agreedCount);
-        setRematchOfferTimeRemaining(10); // Start 10s timer to accept/decline
-      });
-
-      // This event might be deprecated if 'rematch_status_update' with agreedCount=2 handles it.
-      // Or it could be a confirmation that the server has processed the two agreements.
-      newSocket.on('rematch_accepted', ({ gameId }: { gameId: string }) => {
-        console.log(`Rematch fully accepted for game ${gameId}! Waiting for new game state.`);
-        setRematchState('accepted');
-        setRematchAgreedCount(2); // Ensure count is 2
-        clearRematchTimer();
-        // Server will send a new 'gameStart' or 'gameStateUpdate' for the new game
-      });
-
-      newSocket.on('rematch_declined', ({ byPlayerId }: { byPlayerId: string }) => {
-        console.log(`Rematch declined by ${byPlayerId}`);
-        setRematchState(playerIdRef.current === byPlayerId ? 'declined_by_self' : 'declined_by_opponent');
-        setRematchAgreedCount(0); // Reset count on decline
-        clearRematchTimer();
-      });
-      
-      newSocket.on('rematch_cancelled', ({ byPlayerId }: { byPlayerId: string }) => {
-        console.log(`Rematch cancelled by ${byPlayerId}`);
-        setRematchState(playerIdRef.current === byPlayerId ? 'cancelled_by_self' : 'cancelled_by_opponent');
-        // Server should update agreed count and send 'rematch_status_update'
-        // For now, client can assume count might go down.
-        // setRematchAgreedCount(prev => Math.max(0, prev -1)); // Or wait for server update
-        clearRematchTimer();
-      });
-      
-      newSocket.on('rematch_offer_expired', ({gameId}: {gameId: string}) => {
-        if (gameStateRef.current?.id === gameId) {
-          console.log('A rematch offer has expired for the current game.');
-          // Only transition if currently in an active offer state
-          if(rematchState === 'offer_sent' || rematchState === 'offer_received' || rematchState === 'can_offer') {
-              setRematchState('offer_timed_out');
-          }
-          setRematchAgreedCount(0); // Reset agreed count
-          clearRematchTimer();
-        }
-      });
-
-
       newSocket.on('error', (message: string) => {
         console.error('Socket Error:', message);
         setError(message);
@@ -508,17 +331,14 @@ const useGameLogic = ({ isOnlineMultiplayer = false, onGoHome }: UseGameLogicPro
         // Set game state to gameOver and update gameResults
         setGameState(prev => {
           if (prev && prev.gamePhase !== 'gameOver') {
-            return { ...prev, gamePhase: 'gameOver', winnerMessage: disconnectMessage, rematchState: 'none' };
+            return { ...prev, gamePhase: 'gameOver', winnerMessage: disconnectMessage };
           }
           return prev;
         });
         setGameResults(disconnectMessage);
-        setRematchState('none'); // No rematch on disconnect
-        setRematchAgreedCount(0);
-        clearRematchTimer();
-
+        
         // Clear the separate error state if we are showing the message in gameResults
-        setError(null); 
+        setError(null);
       });
 
       newSocket.on('turnTimeout', ({ gameId, playerId: timedOutPlayerId }: { gameId: string, playerId: string }) => {
@@ -581,15 +401,13 @@ const useGameLogic = ({ isOnlineMultiplayer = false, onGoHome }: UseGameLogicPro
       setGameResults(null);
       setError(null);
       setHeldCard(null);
-      setRematchState('none'); // Reset rematch state when starting a new non-rematch game
-      setRematchAgreedCount(0);
-      clearRematchTimer();
       // It's important that findMatch is emitted after the state reset has had a chance to propagate
       // or that the UI relies on a different loading indicator if findMatch is immediate.
       // For simplicity here, we'll emit immediately. The UI should ideally handle a "searching" state
       // based on a combination of `isOnlineMultiplayer` and `!gameState`.
+      socket.emit('leaveGameOrQueue'); // Tell the server to clean up any old session
       socket.emit('findMatch'); 
-      console.log("Attempting to find new online match...");
+      console.log("Attempting to find new online match after requesting to leave previous game/queue...");
     } else if (!isOnlineMultiplayer) {
       initializeLocalGame(); // This sets up the initial state including players
       // Then, transition to 'playing' phase
@@ -899,63 +717,6 @@ const useGameLogic = ({ isOnlineMultiplayer = false, onGoHome }: UseGameLogicPro
     }
   }, [isOnlineMultiplayer, gameState, startGame]); 
 
-  const requestRematch = useCallback(() => {
-    if (socket && gameStateRef.current && gameStateRef.current.id && playerIdRef.current && (rematchState === 'can_offer' || rematchState === 'offer_received')) {
-      console.log(`Player ${playerIdRef.current} actioning rematch for game ${gameStateRef.current.id}. Current agreed: ${rematchAgreedCount}`);
-      socket.emit('request_rematch', { gameId: gameStateRef.current.id, requestingPlayerId: playerIdRef.current });
-      
-      if (rematchState === 'can_offer') {
-        setRematchState('offer_sent');
-        // Optimistically update count if this player is initiating.
-        // Server's rematch_status_update will be the source of truth.
-        if (rematchAgreedCount === 0) {
-          setRematchAgreedCount(1); 
-        }
-      } else if (rematchState === 'offer_received') {
-        // Player is accepting. The server will confirm if this results in agreedCount === 2
-        // and then trigger a new game or send a status update.
-        // No optimistic change to 'accepted' here; wait for server.
-      }
-    }
-  }, [socket, rematchState, rematchAgreedCount]); // gameStateRef and playerIdRef are refs
-
-  const acceptRematch = useCallback(() => {
-    // This function is likely unused if GameTable.tsx calls requestRematch for "Accept" button.
-    // Keeping it for now, but it should mirror the logic in requestRematch if used.
-    if (socket && gameStateRef.current && gameStateRef.current.id && playerIdRef.current && rematchState === 'offer_received') {
-      console.log(`Player ${playerIdRef.current} accepting rematch for game ${gameStateRef.current.id} via acceptRematch func`);
-      socket.emit('accept_rematch', { gameId: gameStateRef.current.id, acceptingPlayerId: playerIdRef.current });
-    }
-  }, [socket, rematchState]); // gameStateRef and playerIdRef are refs
-
-  const declineRematch = useCallback(() => {
-    if (socket && gameStateRef.current && gameStateRef.current.id && playerIdRef.current) {
-      if (rematchState === 'offer_received') {
-        console.log(`Player ${playerIdRef.current} declining rematch offer for game ${gameStateRef.current.id}`);
-        socket.emit('decline_rematch', { gameId: gameStateRef.current.id, decliningPlayerId: playerIdRef.current });
-        setRematchState('declined_by_self');
-      } else if (rematchState === 'can_offer') {
-        console.log(`Player ${playerIdRef.current} chose not to offer a rematch for game ${gameStateRef.current.id}`);
-        setRematchState('none'); 
-      } else {
-        return;
-      }
-      setRematchAgreedCount(0); // Reset count as the action implies breaking the rematch sequence
-      clearRematchTimer();
-    }
-  }, [socket, rematchState, clearRematchTimer]); // gameStateRef and playerIdRef are refs
-  
-  const cancelRematchRequest = useCallback(() => {
-    if (socket && gameStateRef.current && gameStateRef.current.id && playerIdRef.current && rematchState === 'offer_sent') {
-      console.log(`Player ${playerIdRef.current} cancelling their rematch offer for game ${gameStateRef.current.id}`);
-      socket.emit('cancel_rematch_request', { gameId: gameStateRef.current.id, cancellingPlayerId: playerIdRef.current });
-      setRematchState('cancelled_by_self');
-      // Optimistically set count to 0, server will confirm.
-      setRematchAgreedCount(0); 
-      clearRematchTimer();
-    }
-  }, [socket, rematchState, clearRematchTimer]); // gameStateRef and playerIdRef are refs
-
   const cancelMatchmaking = useCallback(() => {
     if (socket && isOnlineMultiplayer && !gameState) { // Check if currently in matchmaking state
       console.log(`Player ${playerId} cancelling matchmaking`);
@@ -980,13 +741,6 @@ const useGameLogic = ({ isOnlineMultiplayer = false, onGoHome }: UseGameLogicPro
     error, 
     setError, 
     gameResults,
-    rematchState,
-    rematchAgreedCount, // Expose new count
-    rematchOfferTimeRemaining,
-    requestRematch, // This now handles both offering and accepting based on context
-    acceptRematch,
-    declineRematch,
-    cancelRematchRequest,
     cancelMatchmaking
   };
 };
