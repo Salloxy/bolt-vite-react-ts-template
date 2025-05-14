@@ -1,9 +1,13 @@
 // src/App.tsx
-import React, { useState, useEffect, useCallback } from 'react'; // Added useCallback
+import React, { useState, useEffect, useCallback, useRef } from 'react'; // Added useRef
 import GameTable from './components/GameTable';
-import Menu from './components/Menu'; // Import the Menu component
+import HowToPlay from './components/HowToPlay'; // Import the HowToPlay component
+// Menu component is not directly used in App.tsx for rendering views anymore,
+// but GameTable might still use it internally or we might add a main menu component later.
+// For now, the main menu is directly in App.tsx.
 
 type GameMode = null | 'ai' | 'online';
+type CurrentView = 'mainMenu' | 'game' | 'howToPlay';
 
 // Define the viewport dimensions at which the rem-based fluid layout
 // is designed to look perfect without any overall scaling.
@@ -12,13 +16,25 @@ const DESIGN_TARGET_HEIGHT = 680; // Adjusted minimum height for ideal rem-based
 const BASE_ROOT_FONT_SIZE = 16; // Your default root font-size in px
 
 function App() {
+  const [currentView, setCurrentView] = useState<CurrentView>('mainMenu');
+  const howToPlayScrollRef = useRef<HTMLDivElement>(null); // Ref for the scrollable container
   const [gameMode, setGameMode] = useState<GameMode>(null);
   const [gameAreaStyle, setGameAreaStyle] = useState<React.CSSProperties>({});
   const [restartTrigger, setRestartTrigger] = useState(0); // State to trigger GameTable remount
 
-  const goToHome = useCallback(() => {
+  const navigateToMainMenu = useCallback(() => {
+    setCurrentView('mainMenu');
     setGameMode(null);
-  }, []); // setGameMode is stable
+  }, []);
+
+  const navigateToHowToPlay = useCallback(() => {
+    setCurrentView('howToPlay');
+  }, []);
+
+  const startGame = useCallback((mode: 'ai' | 'online') => {
+    setGameMode(mode);
+    setCurrentView('game');
+  }, []);
 
   const restartGame = useCallback(() => {
     // To restart GameTable, we change its key, forcing a remount.
@@ -27,7 +43,16 @@ function App() {
   }, []); // setRestartTrigger is stable
 
   useEffect(() => {
+    // Scroll "How To Play" to top when view changes to it
+    if (currentView === 'howToPlay' && howToPlayScrollRef.current) {
+      howToPlayScrollRef.current.scrollTop = 0;
+    }
+  }, [currentView]);
+
+  useEffect(() => {
     const handleResize = () => {
+      // If not in game view, perhaps we don't need strict scaling,
+      // or apply a different scaling logic. For now, keep it consistent.
       const currentWidth = window.innerWidth;
       const currentHeight = window.innerHeight;
 
@@ -61,7 +86,7 @@ function App() {
     };
   }, []);
 
-  if (!gameMode) {
+  if (currentView === 'mainMenu') {
     return (
       // This initial screen should also be responsive.
       // Using flex to center content within the full viewport height.
@@ -69,43 +94,62 @@ function App() {
         <h1 className="text-5xl font-bold mb-12 text-center">Brazilian Poker</h1>
         <div className="space-y-6 flex flex-col items-center">
           <button
-            onClick={() => setGameMode('ai')}
+            onClick={() => startGame('ai')}
             className="w-64 bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 px-6 rounded-lg text-xl shadow-lg transition duration-150 ease-in-out transform hover:scale-105"
           >
             Play vs AI
           </button>
           <button
-            onClick={() => setGameMode('online')}
+            onClick={() => startGame('online')}
             className="w-64 bg-green-600 hover:bg-green-700 text-white font-bold py-4 px-6 rounded-lg text-xl shadow-lg transition duration-150 ease-in-out transform hover:scale-105"
           >
             Play Online
+          </button>
+          <button
+            onClick={navigateToHowToPlay}
+            className="w-64 bg-yellow-500 hover:bg-yellow-600 text-black font-bold py-4 px-6 rounded-lg text-xl shadow-lg transition duration-150 ease-in-out transform hover:scale-105"
+          >
+            How To Play
           </button>
         </div>
       </div>
     );
   }
 
-  // The outer div ensures full screen and provides a fallback background.
-  // It uses flex to center the gameAreaStyle div.
-  return (
-    <div className="w-screen h-screen bg-gray-800 text-white flex justify-center items-center">
+  if (currentView === 'howToPlay') {
+    return (
+      // Simple full-screen scrollable container.
+      // HowToPlay component will manage all its internal layout and padding.
       <div 
-        style={gameAreaStyle} 
-        // This div now has explicit scaled width and height.
-        // GameTable inside it should be designed to fill this container (e.g., h-full, w-full).
+        ref={howToPlayScrollRef} // Assign the ref here
+        className="w-screen h-screen overflow-y-auto bg-gray-900 text-white"
       > 
-        {/* Use restartTrigger in the key to force remount on restart */}
-        {gameMode && (
+        <HowToPlay onNavigateBack={navigateToMainMenu} />
+      </div>
+    );
+  }
+
+  // currentView === 'game'
+  if (currentView === 'game' && gameMode) {
+    return (
+      <div className="w-screen h-screen bg-gray-800 text-white flex justify-center items-center">
+        <div 
+          style={gameAreaStyle} 
+          // This div now has explicit scaled width and height.
+        > 
           <GameTable 
             key={`${gameMode}-${restartTrigger}`} 
             isOnline={gameMode === 'online'} 
-            onGoHome={goToHome} 
+            onGoHome={navigateToMainMenu} 
             onRestartGame={restartGame} 
           />
-        )}
+        </div>
       </div>
-    </div>
-  );
+    );
+  }
+
+  // Fallback or loading state, though ideally one of the views above should always match.
+  return <div className="w-screen h-screen bg-gray-900 text-white flex justify-center items-center"><p>Loading...</p></div>;
 }
 
 export default App;

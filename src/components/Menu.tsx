@@ -28,7 +28,7 @@ const Menu: React.FC<MenuProps> = ({ onGoHome, onRestartGame }) => {
   }, []);
 
   return (
-    <div className="absolute top-4 right-4 z-50" ref={menuRef}>
+    <div className="absolute top-1 right-4 z-50" ref={menuRef}>
       <button
         onClick={toggleMenu}
         className="p-2 rounded-md text-gray-300 hover:text-white hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-white"
