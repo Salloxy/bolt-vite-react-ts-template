@@ -223,7 +223,7 @@ const GameTable: React.FC<GameTableProps> = ({ isOnline, onGoHome, onRestartGame
 
   return (
     <div 
-      className="relative flex flex-col h-full bg-green-700 text-white items-center p-1" // Removed justify-between, adjusted padding
+      className="relative flex flex-col h-full bg-emerald-800 text-white items-center p-1" // Changed background, Removed justify-between, adjusted padding
       style={{ maxWidth: '26.875rem' }}
     >
       <Menu onGoHome={onGoHome} onRestartGame={onRestartGame} />
@@ -249,7 +249,8 @@ const GameTable: React.FC<GameTableProps> = ({ isOnline, onGoHome, onRestartGame
               <div className="mt-2 space-y-2 text-center">
                 <button
                   onClick={startGame} // This will now reset state and find a new match
-                  className="bg-purple-600 hover:bg-purple-700 text-white font-bold py-1.5 px-3 rounded-lg shadow-lg"
+                  className="bg-yellow-500 hover:bg-yellow-600 text-black font-bold py-2 px-4 rounded-xl shadow-lg border-2 border-yellow-700 hover:border-yellow-800 transition duration-150 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-yellow-400 focus:ring-opacity-50"
+                  style={{ fontSize: 'var(--text-base-responsive)' }}
                 >
                   Find New Online Match
                 </button>
@@ -258,7 +259,7 @@ const GameTable: React.FC<GameTableProps> = ({ isOnline, onGoHome, onRestartGame
             {!isOnline && ( // "Play Again vs AI" button for local games
                 <button
                     onClick={startGame}
-                    className="mt-2 bg-purple-600 hover:bg-purple-700 text-white font-bold py-1.5 px-3 rounded-lg shadow-lg"
+                    className="mt-2 bg-yellow-500 hover:bg-yellow-600 text-black font-bold py-2 px-4 rounded-xl shadow-lg border-2 border-yellow-700 hover:border-yellow-800 transition duration-150 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-yellow-400 focus:ring-opacity-50"
                     style={{ fontSize: 'var(--text-base-responsive)' }}
                 >
                     Play Again vs AI
@@ -281,7 +282,7 @@ const GameTable: React.FC<GameTableProps> = ({ isOnline, onGoHome, onRestartGame
                       {(isMyTurn && !heldCard && gameState.gamePhase === 'playing') ? (
                          <button 
                             onClick={() => { setError(null); drawCard(); }}
-                            className="bg-purple-600 hover:bg-purple-700 text-white font-bold py-1 px-2 rounded text-xs"
+                            className="bg-yellow-500 hover:bg-yellow-600 text-black font-bold py-1.5 px-3 rounded-lg shadow-md border border-yellow-700 hover:border-yellow-800 transition duration-150 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-1 focus:ring-yellow-400 focus:ring-opacity-50 text-xs"
                             style={{ fontSize: 'var(--text-sm-responsive)' }}
                             disabled={gameState.deck.length === 0}
                         >
@@ -289,7 +290,7 @@ const GameTable: React.FC<GameTableProps> = ({ isOnline, onGoHome, onRestartGame
                         </button>
                       ) : (
                         <div
-                          className="font-bold py-1 px-2 rounded text-xs invisible"
+                          className="font-bold py-1.5 px-3 rounded text-xs invisible"
                           style={{ fontSize: 'var(--text-sm-responsive)' }}
                           aria-hidden="true"
                         >

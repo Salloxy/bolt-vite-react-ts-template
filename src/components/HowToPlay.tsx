@@ -52,7 +52,7 @@ const HowToPlay: React.FC<HowToPlayProps> = ({ onNavigateBack }) => {
       <div className="mt-10 text-center"> 
         <button
           onClick={onNavigateBack}
-          className="bg-gray-500 hover:bg-gray-600 text-white font-bold py-3 px-6 rounded-lg text-lg shadow-lg transition duration-150 ease-in-out"
+          className="bg-amber-600 hover:bg-amber-700 text-white font-bold py-3 px-6 rounded-xl text-lg shadow-lg border-2 border-amber-800 hover:border-amber-900 transition duration-150 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-opacity-50"
         >
           Back to Menu
         </button>

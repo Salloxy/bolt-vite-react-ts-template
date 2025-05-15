@@ -88,30 +88,46 @@ function App() {
 
   if (currentView === 'mainMenu') {
     return (
-      // This initial screen should also be responsive.
-      // Using flex to center content within the full viewport height.
-      <div className="w-screen h-screen flex flex-col items-center justify-center p-4 bg-gray-900 text-white">
-        <h1 className="text-5xl font-bold mb-12 text-center">Brazilian Poker</h1>
-        <div className="space-y-6 flex flex-col items-center">
+      <div className="w-screen h-screen flex flex-col items-center justify-center p-4 bg-emerald-800 text-white relative"> {/* Changed background, added relative */}
+        {/* Game Logo/Title Area */}
+        <div className="mb-8 text-center">
+          {/* Placeholder for a more complex visual logo if desired */}
+          {/* Example: <img src="/public/cards/card-back.svg" alt="Card Icon" className="w-24 h-auto mx-auto mb-2 opacity-50" /> */}
+          <h1 
+            className="text-6xl font-extrabold text-yellow-400 tracking-wider" 
+            style={{ textShadow: '3px 3px 0px rgba(0,0,0,0.7), 0 0 10px rgba(255,215,0,0.5)' }} // More prominent shadow, slight glow
+          >
+            Brazilian Poker
+          </h1>
+        </div>
+
+        <p className="text-3xl font-semibold mb-4">Welcome!</p>
+        <p className="text-xl text-gray-200 mb-10 text-center px-4">Select an option below to start your game.</p>
+
+        <div className="space-y-5 flex flex-col items-center">
           <button
             onClick={() => startGame('ai')}
-            className="w-64 bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 px-6 rounded-lg text-xl shadow-lg transition duration-150 ease-in-out transform hover:scale-105"
+            className="w-72 bg-yellow-500 hover:bg-yellow-600 text-black font-bold py-4 px-6 rounded-xl text-2xl shadow-xl border-2 border-yellow-700 hover:border-yellow-800 transition duration-150 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-yellow-400 focus:ring-opacity-50"
           >
             Play vs AI
           </button>
           <button
             onClick={() => startGame('online')}
-            className="w-64 bg-green-600 hover:bg-green-700 text-white font-bold py-4 px-6 rounded-lg text-xl shadow-lg transition duration-150 ease-in-out transform hover:scale-105"
+            className="w-72 bg-yellow-500 hover:bg-yellow-600 text-black font-bold py-4 px-6 rounded-xl text-2xl shadow-xl border-2 border-yellow-700 hover:border-yellow-800 transition duration-150 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-yellow-400 focus:ring-opacity-50"
           >
             Play Online
           </button>
           <button
             onClick={navigateToHowToPlay}
-            className="w-64 bg-yellow-500 hover:bg-yellow-600 text-black font-bold py-4 px-6 rounded-lg text-xl shadow-lg transition duration-150 ease-in-out transform hover:scale-105"
+            className="w-72 bg-amber-600 hover:bg-amber-700 text-white font-bold py-3 px-6 rounded-xl text-xl shadow-lg border-2 border-amber-800 hover:border-amber-900 transition duration-150 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-opacity-50"
           >
             How To Play
           </button>
         </div>
+
+        <p className="absolute bottom-5 left-0 right-0 text-xs text-gray-300 text-center px-6">
+          By pressing "Play vs AI" or "Play Online", I confirm that I have read and accepted the Terms & Conditions and Privacy Policy.
+        </p>
       </div>
     );
   }
@@ -122,7 +138,7 @@ function App() {
       // HowToPlay component will manage all its internal layout and padding.
       <div 
         ref={howToPlayScrollRef} // Assign the ref here
-        className="w-screen h-screen overflow-y-auto bg-gray-900 text-white"
+        className="w-screen h-screen overflow-y-auto bg-emerald-800 text-white" // Changed background
       > 
         <HowToPlay onNavigateBack={navigateToMainMenu} />
       </div>
@@ -132,7 +148,7 @@ function App() {
   // currentView === 'game'
   if (currentView === 'game' && gameMode) {
     return (
-      <div className="w-screen h-screen bg-gray-800 text-white flex justify-center items-center">
+      <div className="w-screen h-screen bg-emerald-800 text-white flex justify-center items-center"> {/* Changed background */}
         <div 
           style={gameAreaStyle} 
           // This div now has explicit scaled width and height.
@@ -149,7 +165,7 @@ function App() {
   }
 
   // Fallback or loading state, though ideally one of the views above should always match.
-  return <div className="w-screen h-screen bg-gray-900 text-white flex justify-center items-center"><p>Loading...</p></div>;
+  return <div className="w-screen h-screen bg-emerald-800 text-white flex justify-center items-center"><p>Loading...</p></div>; {/* Changed background */}
 }
 
 export default App;
