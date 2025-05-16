@@ -88,9 +88,9 @@ function App() {
 
   if (currentView === 'mainMenu') {
     return (
-      <div className="w-screen h-screen flex flex-col items-center justify-center p-4 bg-emerald-800 text-white relative"> {/* Changed background, added relative */}
+      <div className="w-screen h-screen flex flex-col items-center justify-center p-4 bg-emerald-800 text-white"> {/* Removed relative */}
         {/* Game Logo/Title Area */}
-        <div className="mb-8 text-center">
+        <div className="mb-4 text-center"> {/* Retaining compact margin from previous attempt */}
           {/* Placeholder for a more complex visual logo if desired */}
           {/* Example: <img src="/public/cards/card-back.svg" alt="Card Icon" className="w-24 h-auto mx-auto mb-2 opacity-50" /> */}
           <h1 
@@ -102,9 +102,9 @@ function App() {
         </div>
 
         <p className="text-3xl font-semibold mb-4">Welcome!</p>
-        <p className="text-xl text-gray-200 mb-10 text-center px-4">Select an option below to start your game.</p>
+        <p className="text-xl text-gray-200 mb-6 text-center px-4">Select an option below to start your game.</p> {/* Retaining compact margin */}
 
-        <div className="space-y-5 flex flex-col items-center">
+        <div className="space-y-3 flex flex-col items-center"> {/* Retaining compact spacing */}
           <button
             onClick={() => startGame('ai')}
             className="w-72 bg-yellow-500 hover:bg-yellow-600 text-black font-bold py-4 px-6 rounded-xl text-2xl shadow-xl border-2 border-yellow-700 hover:border-yellow-800 transition duration-150 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-yellow-400 focus:ring-opacity-50"
@@ -125,7 +125,7 @@ function App() {
           </button>
         </div>
 
-        <p className="absolute bottom-5 left-0 right-0 text-xs text-gray-300 text-center px-6">
+        <p className="mt-6 text-xs text-gray-300 text-center px-6"> {/* Removed absolute positioning, added mt-6 */}
           By pressing "Play vs AI" or "Play Online", I confirm that I have read and accepted the Terms & Conditions and Privacy Policy.
         </p>
       </div>
