@@ -58,7 +58,8 @@ const CardDisplay: React.FC<CardDisplayProps> = ({ card, isHidden, className }) 
     return null;
   }
 
-  const rankDisplay = card.rank === 'T' ? '10' : card.rank;
+  const rankDisplay = card.rank === 'T' ? '10' : card.rank; // For the center display
+  const cornerRankDisplay = card.rank === 'T' ? 'T' : card.rank; // For corner displays
   const color = suitColors[card.suit];
   const symbol = suitSymbols[card.suit];
 
@@ -82,7 +83,7 @@ const CardDisplay: React.FC<CardDisplayProps> = ({ card, isHidden, className }) 
         fill={color}
         textAnchor="start" // Corrected text-anchor
       >
-        {rankDisplay}
+        {cornerRankDisplay}
       </text>
       <text
         x="50" // Moved slightly right
@@ -107,7 +108,7 @@ const CardDisplay: React.FC<CardDisplayProps> = ({ card, isHidden, className }) 
           fill={color}
           textAnchor="start" // Corrected text-anchor
         >
-          {rankDisplay}
+          {cornerRankDisplay}
         </text>
         <text
           x="50" // Adjusted to align with the new top suit position
