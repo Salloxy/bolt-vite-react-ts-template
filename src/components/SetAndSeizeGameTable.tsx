@@ -135,17 +135,17 @@ const SetAndSeizeGameTable: React.FC<SetAndSeizeGameTableProps> = ({
                 disabled={!(captureMode || (buildMode && selectedTargetCard))}
               >
                 {'cards' in item ? ( // Check if it's an SnsBuild (has a 'cards' property)
-                  <div className="flex flex-col items-center relative" style={{ height: '90px', width: '60px' }}> {/* Explicit size for pile container */}
+                  <div className="flex flex-col items-center relative" style={{ height: '150px', width: '100px' }}> {/* Explicit size for pile container */}
                     {item.cards.map((cardInPile, pileIndex) => (
                       <div
                         key={cardInPile.id}
                         className="absolute" // Use absolute positioning for stacking
                         style={{
-                          top: `${pileIndex * 20}px`, // Vertical offset for stacking (approx 30% of 90px card height)
+                          top: `${pileIndex * 30}px`, // Vertical offset for stacking
                           zIndex: pileIndex, // Ensure correct stacking order (last card on top)
                         }}
                       >
-                        <CardDisplay card={cardInPile} isSmall={true} /> {/* Render cards in pile as small */}
+                    <CardDisplay card={cardInPile} /> {/* Render cards in pile */}
                       </div>
                     ))}
                     {/* Display total value for the pile */}
