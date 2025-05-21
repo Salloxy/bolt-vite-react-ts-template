@@ -59,6 +59,7 @@ const useSetAndSeizeGameLogic = ({ isOnline }: UseSetAndSeizeGameLogicProps) => 
   const [currentPlayer, setCurrentPlayer] = useState<'player' | 'ai'>('player');
   const [mustCapture, setMustCapture] = useState(false);
   const [lastCapturePlayerId, setLastCapturePlayerId] = useState<'player' | 'ai' | null>(null);
+  const [hasPlayedCardThisTurn, setHasPlayedCardThisTurn] = useState(false);
 
   const dealNewHands = useCallback((currentDeck: SnsCard[]) => {
     const newDeck = shuffleDeck(currentDeck); // Shuffle remaining deck
@@ -103,6 +104,7 @@ const useSetAndSeizeGameLogic = ({ isOnline }: UseSetAndSeizeGameLogicProps) => 
     setCurrentPlayer('player');
     setMustCapture(false);
     setLastCapturePlayerId(null);
+    setHasPlayedCardThisTurn(false);
   }, []);
 
   useEffect(() => {
@@ -110,30 +112,41 @@ const useSetAndSeizeGameLogic = ({ isOnline }: UseSetAndSeizeGameLogicProps) => 
   }, [initializeGame]);
 
   const endTurn = useCallback(() => {
-    // Check if both hands are empty
+    setCurrentPlayer(prev => {
+      setHasPlayedCardThisTurn(false); // Reset for the next player's turn
+      return prev === 'player' ? 'ai' : 'player';
+    });
+  }, []); // Dependencies changed as it no longer relies on playerHand, aiHand, deck etc.
+
+  useEffect(() => {
+    // Only trigger this logic if both hands are empty
     if (playerHand.length === 0 && aiHand.length === 0) {
       if (deck.length > 0) {
         // Deal new hands if deck is not empty
         dealNewHands(deck);
       } else {
-        // Game over logic: Final Capture and Scoring
+        // Game over logic: Deck is empty and no more cards to deal
         console.log('Deck is empty. Game Over!');
-        // For now, last player who captured gets middle cards
+        // Last player who captured gets middle cards
         if (lastCapturePlayerId) {
           if (lastCapturePlayerId === 'player') {
             setPlayerCollected(prev => [...prev, ...middleCards]);
           } else {
             setAiCollected(prev => [...prev, ...middleCards]);
           }
-          setMiddleCards([]);
+          setMiddleCards([]); // Clear middle cards
         }
-        // TODO: Implement scoring
+        // TODO: Implement final scoring and game end state
       }
     }
-    setCurrentPlayer(prev => (prev === 'player' ? 'ai' : 'player'));
-  }, [playerHand, aiHand, deck, dealNewHands, lastCapturePlayerId, middleCards]);
+  }, [playerHand, aiHand, deck, dealNewHands, lastCapturePlayerId, middleCards, setPlayerCollected, setAiCollected, setMiddleCards]);
 
   const playCard = useCallback((cardToPlay: SnsCard, actionType: 'drop' | 'capture' | 'build', targetCards: SnsCard[] = []) => {
+    if (hasPlayedCardThisTurn) {
+      console.log(`${currentPlayer} has already played a card this turn.`);
+      return;
+    }
+
     // Remove card from current player's hand
     if (currentPlayer === 'player') {
       setPlayerHand(prev => prev.filter(c => c.id !== cardToPlay.id));
@@ -163,8 +176,9 @@ const useSetAndSeizeGameLogic = ({ isOnline }: UseSetAndSeizeGameLogicProps) => 
       setMustCapture(true); // Building activates must-capture rule
     }
 
+    setHasPlayedCardThisTurn(true); // Mark that a card has been played this turn
     endTurn();
-  }, [currentPlayer, endTurn]);
+  }, [currentPlayer, endTurn, hasPlayedCardThisTurn]);
 
   // AI turn logic
   useEffect(() => {
@@ -195,6 +209,7 @@ const useSetAndSeizeGameLogic = ({ isOnline }: UseSetAndSeizeGameLogicProps) => 
     mustCapture,
     initializeGame,
     playCard,
+    hasPlayedCardThisTurn, // Expose the state
     // Add other game state and actions as needed
   };
 };

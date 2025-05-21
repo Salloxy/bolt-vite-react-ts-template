@@ -25,6 +25,7 @@ const SetAndSeizeGameTable: React.FC<SetAndSeizeGameTableProps> = ({
     mustCapture,
     initializeGame,
     playCard,
+    hasPlayedCardThisTurn, // Destructure the new state
   } = useSetAndSeizeGameLogic({ isOnline });
 
   return (
@@ -79,6 +80,7 @@ const SetAndSeizeGameTable: React.FC<SetAndSeizeGameTableProps> = ({
                   key={index}
                   onClick={() => playCard(card, 'drop')} // Default to 'drop' action for now
                   className="hover:scale-105 transition-transform"
+                  disabled={currentPlayer !== 'player' || hasPlayedCardThisTurn} // Disable if not player's turn or card already played
                 >
                   <CardDisplay card={card} isHandCard={true} />
                 </button>
