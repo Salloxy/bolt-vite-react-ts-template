@@ -28,37 +28,28 @@ const CardDisplay: React.FC<CardDisplayProps> = ({ card, isHidden, className }) 
 
   if (isHidden) {
     return (
-      <svg
-        viewBox="0 0 68 98"
-        xmlns="http://www.w3.org/2000/svg"
-        className={combinedClassName}
-        aria-label="Card back"
-      >
-        <rect width="68" height="98" rx="6" ry="6" fill="#FFFFFF"/>
-        <rect x="3" y="3" width="62" height="92" rx="4" ry="4" fill="#B22222"/> 
-        <rect x="5" y="5" width="58" height="88" rx="3" ry="3" fill="#CD5C5C"/> 
-        <circle cx="34" cy="49" r="12" fill="#FFA07A" stroke="#B22222" strokeWidth="1"/> 
-        <circle cx="34" cy="49" r="8" fill="#DC143C"/> 
-        <path d="M 10 10 Q 15 12 12 15 L 15 12 Q 12 15 10 10 Z" fill="#FFA07A" transform="rotate(45 10 10)"/>
-        <path d="M 58 10 Q 53 12 56 15 L 53 12 Q 56 15 58 10 Z" fill="#FFA07A" transform="rotate(-45 58 10)"/>
-        <path d="M 10 88 Q 15 86 12 83 L 15 86 Q 12 83 10 88 Z" fill="#FFA07A" transform="rotate(-45 10 88)"/>
-        <path d="M 58 88 Q 53 86 56 83 L 53 86 Q 56 83 58 88 Z" fill="#FFA07A" transform="rotate(45 58 88)"/>
-        <g fill="#FFA07A" opacity="0.6"> 
-          <circle cx="18" cy="28" r="1.5"/>
-          <circle cx="50" cy="28" r="1.5"/>
-          <circle cx="18" cy="70" r="1.5"/>
-          <circle cx="50" cy="70" r="1.5"/>
-          <circle cx="34" cy="20" r="2"/>
-          <circle cx="34" cy="78" r="2"/>
-          <circle cx="20" cy="49" r="2"/>
-          <circle cx="48" cy="49" r="2"/>
-        </g>
+      <svg viewBox="0 0 68 98" xmlns="http://www.w3.org/2000/svg" className={combinedClassName} aria-label="Card back">
+        <rect width="68" height="98" rx="6" ry="6" fill="#FFFFFF"></rect>
+        <rect x="3" y="3" width="62" height="92" rx="4" ry="4" fill="#003049"></rect> {/* Darkest blue from outer background */}
+        <rect x="5" y="5" width="58" height="88" rx="3" ry="3" fill="#004060"></rect> {/* Lighter blue from inner gradient start */}
+        
+        {/* Central design element - a subtle wave or abstract shape */}
+        <path d="M 0 49 C 17 30, 51 30, 68 49 S 51 68, 17 68, 0 49 Z" fill="#005f73" opacity="0.7"></path> {/* Middle blue from inner gradient */}
+        
+        {/* Subtle pattern using a gradient */}
         <defs>
-          <pattern id="subtleGrid" width="4" height="4" patternUnits="userSpaceOnUse">
-            <path d="M 0 2 L 4 2 M 2 0 L 2 4" stroke="#DC143C" strokeWidth="0.3" opacity="0.5"/> 
+          <linearGradient id="blueGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" style={{stopColor:'#0a9396',stopOpacity:0.5}} />
+            <stop offset="100%" style={{stopColor:'#005f73',stopOpacity:0.5}} />
+          </linearGradient>
+          <pattern id="wavePattern" width="10" height="10" patternUnits="userSpaceOnUse">
+            <path d="M0 5 Q2.5 2.5 5 5 T10 5" stroke="url(#blueGradient)" strokeWidth="0.5" fill="none"/>
           </pattern>
         </defs>
-        <rect x="5" y="5" width="58" height="88" rx="3" ry="3" fill="url(#subtleGrid)" opacity="0.3"/>
+        <rect x="5" y="5" width="58" height="88" rx="3" ry="3" fill="url(#wavePattern)" opacity="0.3"></rect>
+        
+        {/* Small central circle for detail */}
+        <circle cx="34" cy="49" r="8" fill="#94d2bd" stroke="#005f73" strokeWidth="1"></circle> {/* Lightest blue from inner gradient */}
       </svg>
     );
   }
@@ -84,8 +75,8 @@ const CardDisplay: React.FC<CardDisplayProps> = ({ card, isHidden, className }) 
       {/* Top-left Rank and Suit */}
       <text
         x="8" // Adjusted x for text-anchor start
-        y="25" // Adjusted y
-        fontSize="20" // Adjusted font size
+        y="30" // Adjusted y - moved down for better vertical alignment
+        fontSize="28" // Adjusted font size - made bigger
         fontFamily="Arial, sans-serif"
         fontWeight="bold"
         fill={color}
@@ -94,13 +85,13 @@ const CardDisplay: React.FC<CardDisplayProps> = ({ card, isHidden, className }) 
         {rankDisplay}
       </text>
       <text
-        x="32" // Increased x for more space from rank
-        y="25" // Adjusted y to align with rank
-        fontSize="22" // Increased font size for suit symbol
+        x="50" // Moved slightly right
+        y="30" // Adjusted y - moved down for better vertical alignment
+        fontSize="34" // Increased font size for suit symbol
         fontFamily="Arial, sans-serif"
         fontWeight="bold"
         fill={color}
-        textAnchor="start" // Corrected text-anchor
+        textAnchor="middle" // Centered the suit symbol
       >
         {symbol}
       </text>
@@ -109,8 +100,8 @@ const CardDisplay: React.FC<CardDisplayProps> = ({ card, isHidden, className }) 
       <g transform="rotate(180, 50, 75)">
         <text
           x="8" // Adjusted x
-          y="25" // Adjusted y
-          fontSize="20" // Adjusted font size
+          y="30" // Adjusted y - moved down for better vertical alignment
+          fontSize="28" // Adjusted font size - made bigger
           fontFamily="Arial, sans-serif"
           fontWeight="bold"
           fill={color}
@@ -119,30 +110,30 @@ const CardDisplay: React.FC<CardDisplayProps> = ({ card, isHidden, className }) 
           {rankDisplay}
         </text>
         <text
-          x="32" // Increased x for more space from rank
-          y="25" // Adjusted y to align with rank
-          fontSize="22" // Increased font size for suit symbol
+          x="50" // Adjusted to align with the new top suit position
+          y="30" // Adjusted y - moved down for better vertical alignment
+          fontSize="34" // Increased font size for suit symbol
           fontFamily="Arial, sans-serif"
           fontWeight="bold"
           fill={color}
-          textAnchor="start" // Corrected text-anchor
+          textAnchor="middle" // Centered the suit symbol
         >
           {symbol}
         </text>
       </g>
 
-      {/* Center Suit Symbol (larger) */}
+      {/* Center Rank (larger) */}
       <text
         x="50"
-        y="80" // Adjusted y for center
-        fontSize="50" // Adjusted font size for center
+        y="75" // Adjusted y for center - moved up for better alignment
+        fontSize="70" // Adjusted font size for center - made bigger
         fontFamily="Arial, sans-serif"
         fontWeight="bold"
         fill={color}
         textAnchor="middle"
         dominantBaseline="central" // More precise vertical centering
       >
-        {symbol}
+        {rankDisplay} {/* Changed to display rank instead of symbol */}
       </text>
     </svg>
   );

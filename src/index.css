@@ -6,7 +6,7 @@
   /* Further Adjusted card sizes for mobile-first 9:16 layout - Reduced by ~10% */
   --card-width: 4.05rem;    /* Approx 64.8px at 16px root font. Was 4.5rem */
   --card-height: 5.67rem;   /* Approx 90.72px (maintaining 1.4 aspect ratio). Was 6.3rem */
-  --card-stack-offset: 0.972rem; /* Approx 15.55px. Was 1.08rem */
+  --card-stack-offset: 1.5rem; /* Significantly increased for more space between stacked cards */
   --card-stack-container-height: calc(var(--card-height) + 4 * var(--card-stack-offset)); /* Will update automatically */
 
   /* Base font sizes - Reduced by ~10% */
@@ -49,10 +49,14 @@ html, body, #root {
 
 body {
   font-size: var(--text-base-responsive); /* Base font size */
-  background-color: #1a202c; /* Default background for the page */
+  background-color: #003049 !important; /* Darker blue to match the inner section, forced with !important */
   color: white; /* Default text color if not overridden */
 }
 
 /* Removed .scalable-content-wrapper. GameTable will now be directly responsible for its layout. */
 /* The #root div will be the main container for the app. */
 /* GameTable should be designed to fill #root or manage its own full-screen presence. */
+
+.game-table-background {
+  background: linear-gradient(to bottom right, #004060, #005f73, #0a9396); /* Adjusted gradient start to be lighter */
+}

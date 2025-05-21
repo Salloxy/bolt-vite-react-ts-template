@@ -222,8 +222,8 @@ const GameTable: React.FC<GameTableProps> = ({ isOnline, onGoHome, onRestartGame
   };
 
   return (
-    <div 
-      className="relative flex flex-col h-full bg-emerald-800 text-white items-center p-1" // Changed background, Removed justify-between, adjusted padding
+    <div
+      className="relative flex flex-col h-full game-table-background text-white items-center p-1" // Changed background, Removed justify-between, adjusted padding
       style={{ maxWidth: '26.875rem' }}
     >
       <Menu onGoHome={onGoHome} onRestartGame={onRestartGame} />
