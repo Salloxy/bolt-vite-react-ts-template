@@ -9,6 +9,14 @@
   --card-stack-offset: 1.5rem; /* Significantly increased for more space between stacked cards */
   --card-stack-container-height: calc(var(--card-height) + 4 * var(--card-stack-offset)); /* Will update automatically */
 
+  /* Small card dimensions (approx 60% of regular) */
+  --card-width-small: calc(var(--card-width) * 0.6);
+  --card-height-small: calc(var(--card-height) * 0.6);
+
+  /* Hand card dimensions (approx 80% of regular) */
+  --card-width-hand: calc(var(--card-width) * 0.8);
+  --card-height-hand: calc(var(--card-height) * 0.8);
+
   /* Base font sizes - Reduced by ~10% */
   --text-sm-responsive: 0.9rem; /* 14.4px */
   --text-base-responsive: 1.0125rem; /* 16.2px */
@@ -22,6 +30,18 @@
 .card-dimensions {
   width: var(--card-width);
   height: var(--card-height);
+}
+
+/* Utility class for small card dimensions */
+.card-dimensions-small {
+  width: var(--card-width-small);
+  height: var(--card-height-small);
+}
+
+/* Utility class for hand card dimensions */
+.card-dimensions-hand {
+  width: var(--card-width-hand);
+  height: var(--card-height-hand);
 }
 
 /* Utility class for the hand stack container */
