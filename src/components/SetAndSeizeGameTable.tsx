@@ -141,8 +141,7 @@ const SetAndSeizeGameTable: React.FC<SetAndSeizeGameTableProps> = ({
                         key={cardInPile.id}
                         className="absolute" // Use absolute positioning for stacking
                         style={{
-                          top: `${pileIndex * -70}px`, // Vertical offset for tight overlap
-                          left: `${pileIndex * 15}px`, // Horizontal offset to reveal corner
+                          top: `${pileIndex * 20}px`, // Vertical offset for stacking (approx 30% of 90px card height)
                           zIndex: pileIndex, // Ensure correct stacking order (last card on top)
                         }}
                       >
