@@ -2,7 +2,7 @@ import React from 'react';
 import useSetAndSeizeGameLogic from '../hooks/useSetAndSeizeGameLogic';
 import CardDisplay from './CardDisplay'; // Import the CardDisplay component
 import Menu from './Menu'; // Import the Menu component
-import { Card } from '../types'; // Assuming Card type is in types/index.ts
+import { SnsCard } from '../types'; // Assuming SnsCard type is in types/index.ts
 
 interface SetAndSeizeGameTableProps {
   isOnline: boolean;
@@ -23,15 +23,59 @@ const SetAndSeizeGameTable: React.FC<SetAndSeizeGameTableProps> = ({
     aiCollected,
     currentPlayer,
     mustCapture,
+    selectedMiddleCards, // Destructure new state
+    setSelectedMiddleCards, // Destructure the setter for selectedMiddleCards
     initializeGame,
     playCard,
-    hasPlayedCardThisTurn, // Destructure the new state
+    toggleMiddleCardSelection, // Destructure new function
+    hasPlayedCardThisTurn,
+    checkValidCapture, // Destructure checkValidCapture
   } = useSetAndSeizeGameLogic({ isOnline });
+
+  const [selectedHandCard, setSelectedHandCard] = React.useState<SnsCard | null>(null);
+  const [captureMode, setCaptureMode] = React.useState<boolean>(false); // New state for capture mode
+
+  const handleHandCardClick = (card: SnsCard) => {
+    if (currentPlayer === 'player' && !hasPlayedCardThisTurn) {
+      setSelectedHandCard(card);
+      setSelectedMiddleCards([]); // Clear any previously selected middle cards
+      setCaptureMode(false); // Reset capture mode when a new hand card is selected
+    }
+  };
+
+  const handleDrop = () => {
+    if (selectedHandCard) {
+      playCard(selectedHandCard, 'drop');
+      setSelectedHandCard(null);
+      setSelectedMiddleCards([]);
+      setCaptureMode(false);
+    }
+  };
+
+  const handleInitiateCapture = () => {
+    setCaptureMode(true); // Enter capture mode
+    setSelectedMiddleCards([]); // Clear any previous middle selections
+  };
+
+  const handleConfirmCapture = () => {
+    if (selectedHandCard && checkValidCapture(selectedHandCard, selectedMiddleCards)) {
+      playCard(selectedHandCard, 'capture');
+      setSelectedHandCard(null);
+      setSelectedMiddleCards([]);
+      setCaptureMode(false);
+    }
+  };
+
+  const handleCancel = () => {
+    setSelectedHandCard(null);
+    setSelectedMiddleCards([]);
+    setCaptureMode(false);
+  };
 
   return (
     <div
-      className="relative flex flex-col h-full game-table-background text-white items-center p-1" // Changed background, Removed justify-between, adjusted padding
-      style={{ maxWidth: '26.875rem' }} // Max width to match Brazilian Poker GameTable
+      className="relative flex flex-col h-full game-table-background text-white items-center p-1"
+      style={{ maxWidth: '26.875rem' }}
     >
       <Menu onGoHome={onGoHome} onRestartGame={onRestartGame} />
 
@@ -46,10 +90,7 @@ const SetAndSeizeGameTable: React.FC<SetAndSeizeGameTableProps> = ({
         <div className="flex flex-col items-center mt-2">
           <h3 className="text-xl font-semibold mb-2">AI Collected ({aiCollected.length} cards)</h3>
           <div className="flex flex-wrap justify-center">
-            {aiCollected.slice(0, 5).map((card, index) => (
-              <CardDisplay key={index} card={card} isSmall={true} />
-            ))}
-            {aiCollected.length > 5 && <span className="text-sm ml-2">+{aiCollected.length - 5} more</span>}
+            {/* Removed display of collected AI cards */}
           </div>
         </div>
       </div>
@@ -60,7 +101,14 @@ const SetAndSeizeGameTable: React.FC<SetAndSeizeGameTableProps> = ({
         <div className="flex flex-wrap justify-center min-h-[90px] border border-gray-600 rounded p-2 bg-gray-700">
           {middleCards.length > 0 ? (
             middleCards.map((card, index) => (
-              <CardDisplay key={index} card={card} />
+              <button
+                key={index}
+                onClick={() => captureMode && toggleMiddleCardSelection(card)} // Only allow selection in capture mode
+                className={`hover:scale-105 transition-transform ${selectedMiddleCards.some(c => c.id === card.id) ? 'border-4 border-blue-500' : ''}`}
+                disabled={!captureMode} // Disable selection if not in capture mode
+              >
+                <CardDisplay card={card} />
+              </button>
             ))
           ) : (
             <p className="text-gray-400">No cards in the middle.</p>
@@ -68,6 +116,54 @@ const SetAndSeizeGameTable: React.FC<SetAndSeizeGameTableProps> = ({
         </div>
         <p className="text-lg mt-2">Current Player: {currentPlayer === 'player' ? 'You' : 'AI'}</p>
         {mustCapture && <p className="text-red-400 font-bold">MUST CAPTURE!</p>}
+
+        {/* Action Buttons */}
+        {selectedHandCard && !captureMode && ( // Show initial options
+          <div className="mt-4 flex space-x-4">
+            <button
+              onClick={handleDrop}
+              className="px-4 py-2 bg-green-600 rounded hover:bg-green-700 disabled:opacity-50"
+              disabled={currentPlayer !== 'player' || hasPlayedCardThisTurn}
+            >
+              Drop
+            </button>
+            <button
+              onClick={handleInitiateCapture}
+              className="px-4 py-2 bg-blue-600 rounded hover:bg-blue-700 disabled:opacity-50"
+              disabled={currentPlayer !== 'player' || hasPlayedCardThisTurn}
+            >
+              Capture
+            </button>
+            <button
+              onClick={handleCancel}
+              className="px-4 py-2 bg-gray-600 rounded hover:bg-gray-700"
+            >
+              Cancel
+            </button>
+          </div>
+        )}
+
+        {selectedHandCard && captureMode && ( // Show confirm/cancel in capture mode
+          <div className="mt-4 flex space-x-4">
+            <button
+              onClick={handleConfirmCapture}
+              className="px-4 py-2 bg-blue-600 rounded hover:bg-blue-700 disabled:opacity-50"
+              disabled={
+                currentPlayer !== 'player' ||
+                hasPlayedCardThisTurn ||
+                !checkValidCapture(selectedHandCard, selectedMiddleCards)
+              }
+            >
+              Confirm Capture
+            </button>
+            <button
+              onClick={handleCancel}
+              className="px-4 py-2 bg-gray-600 rounded hover:bg-gray-700"
+            >
+              Cancel
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Bottom Area: Player Hand and Player Collected */}
@@ -78,9 +174,9 @@ const SetAndSeizeGameTable: React.FC<SetAndSeizeGameTableProps> = ({
             playerHand.map((card, index) => (
                 <button
                   key={index}
-                  onClick={() => playCard(card, 'drop')} // Default to 'drop' action for now
-                  className="hover:scale-105 transition-transform"
-                  disabled={currentPlayer !== 'player' || hasPlayedCardThisTurn} // Disable if not player's turn or card already played
+                  onClick={() => handleHandCardClick(card)}
+                  className={`hover:scale-105 transition-transform ${selectedHandCard?.id === card.id ? 'border-4 border-yellow-500' : ''}`}
+                  disabled={currentPlayer !== 'player' || hasPlayedCardThisTurn}
                 >
                   <CardDisplay card={card} isHandCard={true} />
                 </button>
@@ -92,10 +188,7 @@ const SetAndSeizeGameTable: React.FC<SetAndSeizeGameTableProps> = ({
         <div className="flex flex-col items-center mt-2">
           <h3 className="text-xl font-semibold mb-2">Your Collected ({playerCollected.length} cards)</h3>
           <div className="flex flex-wrap justify-center">
-            {playerCollected.slice(0, 5).map((card, index) => (
-              <CardDisplay key={index} card={card} isSmall={true} />
-            ))}
-            {playerCollected.length > 5 && <span className="text-sm ml-2">+{playerCollected.length - 5} more</span>}
+            {/* Removed display of collected player cards */}
           </div>
         </div>
       </div>

@@ -7,10 +7,93 @@ const getCardValue = (rank: SnsRank): number => {
     case 'J': return 11;
     case 'Q': return 12;
     case 'K': return 13;
-    case 'A': return 14; // Default to 14, can be changed to 1 during play
-    case 'T': return 10; // 'T' for Ten
+    case 'A': return 14;
+    case 'T': return 10;
     default: return parseInt(rank, 10);
   }
+};
+
+// Helper to get all possible numeric values for a card (e.g., Ace can be 1 or 14)
+const getCardPossibleValues = (card: SnsCard): number[] => {
+  if (card.isAce) {
+    return [1, 14];
+  }
+  return [card.value];
+};
+
+// Recursive function to check if a set of cards can be partitioned into subsets,
+// where each subset sums to the target value.
+const canAllCardsBePartitioned = (
+  targetSum: number,
+  cards: SnsCard[],
+  currentUsedIndices: boolean[] // Tracks which cards are used in the overall partitioning
+): boolean => {
+  // Base case: if all cards are used, we found a valid partition
+  if (currentUsedIndices.every(u => u)) {
+    return true;
+  }
+
+  // Find the first unused card to start a new subset search
+  let firstUnusedIndex = -1;
+  for (let i = 0; i < currentUsedIndices.length; i++) {
+    if (!currentUsedIndices[i]) {
+      firstUnusedIndex = i;
+      break;
+    }
+  }
+
+  // If no unused cards but not all are used (shouldn't happen if logic is correct)
+  if (firstUnusedIndex === -1) {
+    return false;
+  }
+
+  // Try to form a subset starting from firstUnusedIndex
+  const findSubsetAndRecurse = (
+    startIndexForSubset: number,
+    currentSubsetSum: number,
+    currentSubsetIndices: number[],
+    tempUsedIndices: boolean[] // Temporary 'used' array for this subset branch
+  ): boolean => {
+    // If current subset sums to targetSum
+    if (currentSubsetSum === targetSum) {
+      // Create a new 'used' array for the next level of partitioning
+      const nextOverallUsedIndices = [...currentUsedIndices];
+      currentSubsetIndices.forEach(idx => nextOverallUsedIndices[idx] = true);
+
+      // Recursively check if the remaining cards can be partitioned
+      return canAllCardsBePartitioned(targetSum, cards, nextOverallUsedIndices);
+    }
+
+    // If current subset sum exceeds target or no more cards to consider for this subset
+    if (currentSubsetSum > targetSum || startIndexForSubset >= cards.length) {
+      return false;
+    }
+
+    // Try to add cards to the current subset
+    for (let i = startIndexForSubset; i < cards.length; i++) {
+      if (!tempUsedIndices[i]) { // Only consider cards not yet used in this temporary subset
+        const card = cards[i];
+        const possibleValues = getCardPossibleValues(card);
+
+        for (const val of possibleValues) {
+          currentSubsetIndices.push(i);
+          tempUsedIndices[i] = true; // Mark as temporarily used for this subset branch
+
+          if (findSubsetAndRecurse(i + 1, currentSubsetSum + val, currentSubsetIndices, tempUsedIndices)) {
+            return true;
+          }
+
+          currentSubsetIndices.pop(); // Backtrack
+          tempUsedIndices[i] = false; // Unmark for backtracking
+        }
+      }
+    }
+    return false;
+  };
+
+  // Start the process of finding a subset from the first unused card
+  const initialTempUsedIndices = [...currentUsedIndices]; // Copy the overall used state
+  return findSubsetAndRecurse(firstUnusedIndex, 0, [], initialTempUsedIndices);
 };
 
 // Generate a standard 52-card deck
@@ -60,6 +143,15 @@ const useSetAndSeizeGameLogic = ({ isOnline }: UseSetAndSeizeGameLogicProps) => 
   const [mustCapture, setMustCapture] = useState(false);
   const [lastCapturePlayerId, setLastCapturePlayerId] = useState<'player' | 'ai' | null>(null);
   const [hasPlayedCardThisTurn, setHasPlayedCardThisTurn] = useState(false);
+  const [selectedMiddleCards, setSelectedMiddleCards] = useState<SnsCard[]>([]); // New state for selected middle cards
+
+  const toggleMiddleCardSelection = useCallback((card: SnsCard) => {
+    setSelectedMiddleCards(prev =>
+      prev.some(c => c.id === card.id)
+        ? prev.filter(c => c.id !== card.id)
+        : [...prev, card]
+    );
+  }, []);
 
   const dealNewHands = useCallback((currentDeck: SnsCard[]) => {
     const newDeck = shuffleDeck(currentDeck); // Shuffle remaining deck
@@ -141,7 +233,23 @@ const useSetAndSeizeGameLogic = ({ isOnline }: UseSetAndSeizeGameLogicProps) => 
     }
   }, [playerHand, aiHand, deck, dealNewHands, lastCapturePlayerId, middleCards, setPlayerCollected, setAiCollected, setMiddleCards]);
 
-  const playCard = useCallback((cardToPlay: SnsCard, actionType: 'drop' | 'capture' | 'build', targetCards: SnsCard[] = []) => {
+  const checkValidCapture = useCallback((handCard: SnsCard, middleCardsToCapture: SnsCard[]): boolean => {
+    if (middleCardsToCapture.length === 0) {
+      return false;
+    }
+
+    const handCardPossibleValues = getCardPossibleValues(handCard);
+
+    for (const handValue of handCardPossibleValues) {
+      const initialUsedIndices = new Array(middleCardsToCapture.length).fill(false);
+      if (canAllCardsBePartitioned(handValue, middleCardsToCapture, initialUsedIndices)) {
+        return true;
+      }
+    }
+    return false;
+  }, []);
+
+  const playCard = useCallback((cardToPlay: SnsCard, actionType: 'drop' | 'capture' | 'build') => {
     if (hasPlayedCardThisTurn) {
       console.log(`${currentPlayer} has already played a card this turn.`);
       return;
@@ -158,38 +266,47 @@ const useSetAndSeizeGameLogic = ({ isOnline }: UseSetAndSeizeGameLogicProps) => 
       setMiddleCards(prev => [...prev, cardToPlay]);
       console.log(`${currentPlayer} drops ${cardToPlay.rank}${cardToPlay.suit}`);
     } else if (actionType === 'capture') {
-      // Placeholder for capture logic
-      console.log(`${currentPlayer} captures with ${cardToPlay.rank}${cardToPlay.suit}`);
-      // For now, just add played card and target cards to collected pile
-      if (currentPlayer === 'player') {
-        setPlayerCollected(prev => [...prev, cardToPlay, ...targetCards]);
-      } else {
-        setAiCollected(prev => [...prev, cardToPlay, ...targetCards]);
+      if (!checkValidCapture(cardToPlay, selectedMiddleCards)) {
+        console.log("Invalid capture: Selected middle cards do not sum up to the played card's value.");
+        // Re-add the card to the player's hand if the capture is invalid
+        if (currentPlayer === 'player') {
+          setPlayerHand(prev => [...prev, cardToPlay]);
+        } else {
+          setAiHand(prev => [...prev, cardToPlay]);
+        }
+        setSelectedMiddleCards([]); // Clear selected middle cards
+        return; // Stop the function execution
       }
-      setMiddleCards(prev => prev.filter(c => !targetCards.some(tc => tc.id === c.id))); // Remove captured cards from middle
+
+      console.log(`${currentPlayer} captures with ${cardToPlay.rank}${cardToPlay.suit} and target cards:`, selectedMiddleCards);
+      if (currentPlayer === 'player') {
+        setPlayerCollected(prev => [...prev, cardToPlay, ...selectedMiddleCards]);
+      } else {
+        setAiCollected(prev => [...prev, cardToPlay, ...selectedMiddleCards]);
+      }
+      setMiddleCards(prev => prev.filter(c => !selectedMiddleCards.some(tc => tc.id === c.id)));
       setLastCapturePlayerId(currentPlayer);
-      setMustCapture(false); // Capture clears must-capture rule
+      setMustCapture(false);
+      setSelectedMiddleCards([]); // Clear selected middle cards after capture
     } else if (actionType === 'build') {
-      // Placeholder for build logic
       console.log(`${currentPlayer} builds with ${cardToPlay.rank}${cardToPlay.suit}`);
-      setMiddleCards(prev => [...prev, cardToPlay]); // For now, just add to middle
-      setMustCapture(true); // Building activates must-capture rule
+      setMiddleCards(prev => [...prev, cardToPlay]);
+      setMustCapture(true);
     }
 
-    setHasPlayedCardThisTurn(true); // Mark that a card has been played this turn
+    setHasPlayedCardThisTurn(true);
     endTurn();
-  }, [currentPlayer, endTurn, hasPlayedCardThisTurn]);
+  }, [currentPlayer, endTurn, hasPlayedCardThisTurn, selectedMiddleCards, checkValidCapture]); // Added checkValidCapture to dependencies
 
   // AI turn logic
   useEffect(() => {
     if (currentPlayer === 'ai' && !isOnline) {
       const aiTurnTimeout = setTimeout(() => {
         if (aiHand.length > 0) {
-          const cardToPlay = aiHand[0]; // AI always plays the first card for now
+          const cardToPlay = aiHand[0];
           // Basic AI: always try to drop for now
           playCard(cardToPlay, 'drop');
         } else {
-          // If AI hand is empty, end turn to trigger new hand dealing or game over
           endTurn();
         }
       }, 1000);
@@ -207,9 +324,13 @@ const useSetAndSeizeGameLogic = ({ isOnline }: UseSetAndSeizeGameLogicProps) => 
     aiCollected,
     currentPlayer,
     mustCapture,
+    selectedMiddleCards, // Expose selected middle cards
+    setSelectedMiddleCards, // Expose the setter for selectedMiddleCards
     initializeGame,
     playCard,
-    hasPlayedCardThisTurn, // Expose the state
+    toggleMiddleCardSelection, // Expose toggle function
+    hasPlayedCardThisTurn,
+    checkValidCapture, // Expose checkValidCapture
     // Add other game state and actions as needed
   };
 };
