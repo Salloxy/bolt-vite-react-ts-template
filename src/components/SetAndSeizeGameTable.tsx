@@ -2,7 +2,7 @@ import React from 'react';
 import useSetAndSeizeGameLogic from '../hooks/useSetAndSeizeGameLogic';
 import CardDisplay from './CardDisplay'; // Import the CardDisplay component
 import Menu from './Menu'; // Import the Menu component
-import { SnsCard } from '../types'; // Assuming SnsCard type is in types/index.ts
+import { SnsCard, SnsBuild } from '../types'; // Import SnsCard and SnsBuild
 
 interface SetAndSeizeGameTableProps {
   isOnline: boolean;
@@ -30,16 +30,31 @@ const SetAndSeizeGameTable: React.FC<SetAndSeizeGameTableProps> = ({
     toggleMiddleCardSelection, // Destructure new function
     hasPlayedCardThisTurn,
     checkValidCapture, // Destructure checkValidCapture
+    checkValidSoftBuild, // Destructure checkValidSoftBuild
   } = useSetAndSeizeGameLogic({ isOnline });
 
   const [selectedHandCard, setSelectedHandCard] = React.useState<SnsCard | null>(null);
   const [captureMode, setCaptureMode] = React.useState<boolean>(false); // New state for capture mode
+  const [showBuildOptions, setShowBuildOptions] = React.useState<boolean>(false); // New state for build options
+  const [buildMode, setBuildMode] = React.useState<boolean>(false); // New state for build mode
+  const [buildType, setBuildType] = React.useState<'soft-build' | 'hard-build' | null>(null); // New state for build type
+  const [selectedTargetCard, setSelectedTargetCard] = React.useState<SnsCard | null>(null); // New state for the target card in hand
 
   const handleHandCardClick = (card: SnsCard) => {
     if (currentPlayer === 'player' && !hasPlayedCardThisTurn) {
-      setSelectedHandCard(card);
-      setSelectedMiddleCards([]); // Clear any previously selected middle cards
-      setCaptureMode(false); // Reset capture mode when a new hand card is selected
+      if (buildMode && selectedHandCard && !selectedTargetCard) {
+        // If in build mode, a card to drop is selected, and no target card is selected yet
+        setSelectedTargetCard(card);
+      } else {
+        // Normal card selection or initial card for build
+        setSelectedHandCard(card);
+        setSelectedMiddleCards([]); // Clear any previously selected middle cards
+        setCaptureMode(false); // Reset capture mode
+        setShowBuildOptions(false); // Reset build options visibility
+        setBuildMode(false); // Reset build mode
+        setBuildType(null); // Reset build type
+        setSelectedTargetCard(null); // Reset target card
+      }
     }
   };
 
@@ -70,6 +85,18 @@ const SetAndSeizeGameTable: React.FC<SetAndSeizeGameTableProps> = ({
     setSelectedHandCard(null);
     setSelectedMiddleCards([]);
     setCaptureMode(false);
+    setShowBuildOptions(false);
+    setBuildMode(false);
+    setBuildType(null);
+    setSelectedTargetCard(null);
+  };
+
+  const handleCardOptionSelect = (option: 'soft-build' | 'hard-build') => {
+    console.log(`Selected option for card ${selectedHandCard?.rank}${selectedHandCard?.suit}: ${option}`);
+    setBuildMode(true);
+    setBuildType(option);
+    setShowBuildOptions(false); // Hide soft/hard build buttons
+    setSelectedMiddleCards([]); // Clear middle selections for new build
   };
 
   return (
@@ -100,14 +127,37 @@ const SetAndSeizeGameTable: React.FC<SetAndSeizeGameTableProps> = ({
         <h3 className="text-2xl font-bold mb-4">Middle Cards</h3>
         <div className="flex flex-wrap justify-center min-h-[90px] border border-gray-600 rounded p-2 bg-gray-700">
           {middleCards.length > 0 ? (
-            middleCards.map((card, index) => (
+            middleCards.map((item, index) => (
               <button
-                key={index}
-                onClick={() => captureMode && toggleMiddleCardSelection(card)} // Only allow selection in capture mode
-                className={`hover:scale-105 transition-transform ${selectedMiddleCards.some(c => c.id === card.id) ? 'border-4 border-blue-500' : ''}`}
-                disabled={!captureMode} // Disable selection if not in capture mode
+                key={item.id} // Use item.id for key
+                onClick={() => (captureMode || (buildMode && selectedTargetCard)) && toggleMiddleCardSelection(item)}
+                className={`hover:scale-105 transition-transform ${selectedMiddleCards.some(c => c.id === item.id) ? 'border-4 border-blue-500' : ''}`}
+                disabled={!(captureMode || (buildMode && selectedTargetCard))}
               >
-                <CardDisplay card={card} />
+                {'cards' in item ? ( // Check if it's an SnsBuild (has a 'cards' property)
+                  <div className="flex flex-col items-center relative" style={{ height: '90px', width: '60px' }}> {/* Explicit size for pile container */}
+                    {item.cards.map((cardInPile, pileIndex) => (
+                      <div
+                        key={cardInPile.id}
+                        className="absolute" // Use absolute positioning for stacking
+                        style={{
+                          top: `${pileIndex * -70}px`, // Vertical offset for tight overlap
+                          left: `${pileIndex * 15}px`, // Horizontal offset to reveal corner
+                          zIndex: pileIndex, // Ensure correct stacking order (last card on top)
+                        }}
+                      >
+                        <CardDisplay card={cardInPile} isSmall={true} /> {/* Render cards in pile as small */}
+                      </div>
+                    ))}
+                    {/* Display total value for the pile */}
+                    <div className="absolute text-xs bg-black bg-opacity-50 text-white px-1 rounded"
+                         style={{ bottom: '-15px', zIndex: item.cards.length + 1 }}> {/* Position below the stack */}
+                      {item.totalValue}
+                    </div>
+                  </div>
+                ) : (
+                  <CardDisplay card={item} /> // It's a single SnsCard
+                )}
               </button>
             ))
           ) : (
@@ -118,7 +168,7 @@ const SetAndSeizeGameTable: React.FC<SetAndSeizeGameTableProps> = ({
         {mustCapture && <p className="text-red-400 font-bold">MUST CAPTURE!</p>}
 
         {/* Action Buttons */}
-        {selectedHandCard && !captureMode && ( // Show initial options
+        {selectedHandCard && !captureMode && !buildMode && !showBuildOptions && ( // Initial options: Drop, Capture, Build, Cancel
           <div className="mt-4 flex space-x-4">
             <button
               onClick={handleDrop}
@@ -135,11 +185,95 @@ const SetAndSeizeGameTable: React.FC<SetAndSeizeGameTableProps> = ({
               Capture
             </button>
             <button
+              onClick={() => setShowBuildOptions(true)}
+              className="px-4 py-2 bg-purple-600 rounded hover:bg-purple-700 disabled:opacity-50"
+              disabled={currentPlayer !== 'player' || hasPlayedCardThisTurn}
+            >
+              Build
+            </button>
+            <button
               onClick={handleCancel}
               className="px-4 py-2 bg-gray-600 rounded hover:bg-gray-700"
             >
               Cancel
             </button>
+          </div>
+        )}
+
+        {selectedHandCard && showBuildOptions && ( // Show Soft/Hard Build options
+          <div className="mt-4 flex space-x-4">
+            <button
+              onClick={() => handleCardOptionSelect('soft-build')}
+              className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 text-sm"
+              disabled={currentPlayer !== 'player' || hasPlayedCardThisTurn}
+            >
+              Soft Build
+            </button>
+            <button
+              onClick={() => handleCardOptionSelect('hard-build')}
+              className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 text-sm"
+              disabled={currentPlayer !== 'player' || hasPlayedCardThisTurn}
+            >
+              Hard Build
+            </button>
+            <button
+              onClick={handleCancel}
+              className="px-4 py-2 bg-gray-600 rounded hover:bg-gray-700"
+            >
+              Cancel
+            </button>
+          </div>
+        )}
+
+        {selectedHandCard && buildMode && !selectedTargetCard && ( // Prompt to select target card
+          <div className="mt-4 flex flex-col items-center space-y-2">
+            <p className="text-lg font-bold text-yellow-400">Select a TARGET card from your hand.</p>
+            <button
+              onClick={handleCancel}
+              className="px-4 py-2 bg-gray-600 rounded hover:bg-gray-700"
+            >
+              Cancel Build
+            </button>
+          </div>
+        )}
+
+        {selectedHandCard && buildMode && selectedTargetCard && ( // Build mode: select middle cards
+          <div className="mt-4 flex flex-col items-center space-y-2">
+            <p className="text-lg font-bold text-yellow-400">
+              Target Value: {selectedTargetCard.rank === 'T' ? '10' : selectedTargetCard.rank}
+            </p>
+            <div className="flex space-x-4">
+            <button
+              onClick={() => {
+                if (selectedHandCard && selectedTargetCard && buildType) {
+                  playCard(selectedHandCard, 'build', selectedTargetCard, buildType);
+                  setSelectedHandCard(null);
+                  setSelectedMiddleCards([]);
+                  setCaptureMode(false);
+                  setShowBuildOptions(false);
+                  setBuildMode(false);
+                  setBuildType(null);
+                  setSelectedTargetCard(null);
+                }
+              }}
+              className="px-4 py-2 bg-purple-600 rounded hover:bg-purple-700 disabled:opacity-50"
+              disabled={
+                currentPlayer !== 'player' ||
+                hasPlayedCardThisTurn ||
+                selectedMiddleCards.length === 0 ||
+                (buildType === 'soft-build' && (!selectedHandCard || !selectedTargetCard || !checkValidSoftBuild(selectedHandCard, selectedTargetCard, selectedMiddleCards))) ||
+                (buildType === 'hard-build') // Hard build is always disabled for now
+              }
+            >
+              Confirm Build
+            </button>
+              <button
+                onClick={handleCancel}
+                className="px-4 py-2 bg-gray-600 rounded hover:bg-gray-700"
+              >
+                Cancel Build
+              </button>
+            </div>
           </div>
         )}
 

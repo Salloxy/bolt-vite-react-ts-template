@@ -1,23 +1,23 @@
 // src/components/CardDisplay.tsx
 import React from 'react';
-import { Card as CardType, Suit, Rank } from '../types';
+import { SnsCard, SnsSuit, SnsRank } from '../types';
 
 interface CardDisplayProps {
-  card: CardType | null;
+  card: SnsCard | null;
   isHidden?: boolean;
   isSmall?: boolean; // For collected cards
   isHandCard?: boolean; // New prop for cards in hand
   className?: string;
 }
 
-const suitSymbols: Record<Suit, string> = {
+const suitSymbols: Record<SnsSuit, string> = {
   H: '♥', // Hearts
   D: '♦', // Diamonds
   C: '♣', // Clubs
   S: '♠', // Spades
 };
 
-const suitColors: Record<Suit, string> = {
+const suitColors: Record<SnsSuit, string> = {
   H: '#FF0000', // Red
   D: '#FF0000', // Red
   C: '#000000', // Black
