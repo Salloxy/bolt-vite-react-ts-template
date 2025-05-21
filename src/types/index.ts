@@ -91,6 +91,7 @@ export interface SnsBuild {
   totalValue: number; // Sum of card values in the build
   ownerId: string; // Player who created/owns this build
   isHard: boolean; // True if it's a hard build
+  hardBuildGroupId?: string; // New: ID to group builds that are part of the same hard build
   // position?: { x: number, y: number }; // Optional: for UI positioning if needed
 }
 

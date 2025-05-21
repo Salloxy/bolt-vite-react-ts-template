@@ -31,6 +31,7 @@ const SetAndSeizeGameTable: React.FC<SetAndSeizeGameTableProps> = ({
     hasPlayedCardThisTurn,
     checkValidCapture, // Destructure checkValidCapture
     checkValidSoftBuild, // Destructure checkValidSoftBuild
+    checkValidHardBuild, // Destructure checkValidHardBuild
   } = useSetAndSeizeGameLogic({ isOnline });
 
   const [selectedHandCard, setSelectedHandCard] = React.useState<SnsCard | null>(null);
@@ -39,6 +40,38 @@ const SetAndSeizeGameTable: React.FC<SetAndSeizeGameTableProps> = ({
   const [buildMode, setBuildMode] = React.useState<boolean>(false); // New state for build mode
   const [buildType, setBuildType] = React.useState<'soft-build' | 'hard-build' | null>(null); // New state for build type
   const [selectedTargetCard, setSelectedTargetCard] = React.useState<SnsCard | null>(null); // New state for the target card in hand
+
+  // Group middle cards for rendering, especially for hard builds
+  const renderableMiddleItems = React.useMemo(() => {
+    const groupedItems: (SnsCard | SnsBuild | SnsBuild[])[] = [];
+    const hardBuildGroups: { [groupId: string]: SnsBuild[] } = {};
+    const processedBuildIds = new Set<string>();
+
+    middleCards.forEach(item => {
+      if ('isHard' in item && item.isHard && item.hardBuildGroupId) {
+        if (!processedBuildIds.has(item.id)) {
+          if (!hardBuildGroups[item.hardBuildGroupId]) {
+            hardBuildGroups[item.hardBuildGroupId] = [];
+          }
+          hardBuildGroups[item.hardBuildGroupId].push(item);
+          processedBuildIds.add(item.id);
+        }
+      } else {
+        groupedItems.push(item); // Add single cards and soft builds directly
+      }
+    });
+
+    // Add grouped hard builds to the renderable items
+    Object.values(hardBuildGroups).forEach(group => {
+      if (group.length > 1) { // Only group if there are multiple builds in the hard build
+        groupedItems.push(group);
+      } else if (group.length === 1) { // If a hard build somehow ended up alone in a group, treat it as a single build
+        groupedItems.push(group[0]);
+      }
+    });
+
+    return groupedItems;
+  }, [middleCards]);
 
   const handleHandCardClick = (card: SnsCard) => {
     if (currentPlayer === 'player' && !hasPlayedCardThisTurn) {
@@ -126,39 +159,77 @@ const SetAndSeizeGameTable: React.FC<SetAndSeizeGameTableProps> = ({
       <div className="game-info-area w-full flex-grow flex flex-col items-center justify-center space-y-0.5 overflow-y-auto py-1">
         <h3 className="text-2xl font-bold mb-4">Middle Cards</h3>
         <div className="flex flex-wrap justify-center min-h-[90px] border border-gray-600 rounded p-2 bg-gray-700">
-          {middleCards.length > 0 ? (
-            middleCards.map((item, index) => (
-              <button
-                key={item.id} // Use item.id for key
-                onClick={() => (captureMode || (buildMode && selectedTargetCard)) && toggleMiddleCardSelection(item)}
-                className={`hover:scale-105 transition-transform ${selectedMiddleCards.some(c => c.id === item.id) ? 'border-4 border-blue-500' : ''}`}
-                disabled={!(captureMode || (buildMode && selectedTargetCard))}
-              >
-                {'cards' in item ? ( // Check if it's an SnsBuild (has a 'cards' property)
-                  <div className="flex flex-col items-center relative" style={{ height: '150px', width: '100px' }}> {/* Explicit size for pile container */}
-                    {item.cards.map((cardInPile, pileIndex) => (
-                      <div
-                        key={cardInPile.id}
-                        className="absolute" // Use absolute positioning for stacking
-                        style={{
-                          top: `${pileIndex * 30}px`, // Vertical offset for stacking
-                          zIndex: pileIndex, // Ensure correct stacking order (last card on top)
-                        }}
+          {renderableMiddleItems.length > 0 ? (
+            renderableMiddleItems.map((item, index) => {
+              if (Array.isArray(item)) { // This is a hard build group
+                const hardBuildGroup = item as SnsBuild[];
+                return (
+                  <div key={`hard-build-group-${hardBuildGroup[0].hardBuildGroupId}`}
+                       className="flex border-4 border-yellow-500 rounded-lg p-1 m-1">
+                    {hardBuildGroup.map(build => (
+                      <button
+                        key={build.id}
+                        onClick={() => (captureMode || (buildMode && selectedTargetCard)) && toggleMiddleCardSelection(build)}
+                        className={`hover:scale-105 transition-transform ${selectedMiddleCards.some(c => c.id === build.id) ? 'border-4 border-blue-500' : ''}`}
+                        disabled={!(captureMode || (buildMode && selectedTargetCard))}
                       >
-                    <CardDisplay card={cardInPile} /> {/* Render cards in pile */}
-                      </div>
+                        <div className="flex flex-col items-center relative" style={{ height: '150px', width: '100px' }}>
+                          {build.cards.map((cardInPile, pileIndex) => (
+                            <div
+                              key={cardInPile.id}
+                              className="absolute"
+                              style={{
+                                top: `${pileIndex * 30}px`,
+                                zIndex: pileIndex,
+                              }}
+                            >
+                              <CardDisplay card={cardInPile} />
+                            </div>
+                          ))}
+                          <div className="absolute text-xs bg-black bg-opacity-50 text-white px-1 rounded"
+                               style={{ bottom: '-15px', zIndex: build.cards.length + 1 }}>
+                            {build.totalValue}
+                          </div>
+                        </div>
+                      </button>
                     ))}
-                    {/* Display total value for the pile */}
-                    <div className="absolute text-xs bg-black bg-opacity-50 text-white px-1 rounded"
-                         style={{ bottom: '-15px', zIndex: item.cards.length + 1 }}> {/* Position below the stack */}
-                      {item.totalValue}
-                    </div>
                   </div>
-                ) : (
-                  <CardDisplay card={item} /> // It's a single SnsCard
-                )}
-              </button>
-            ))
+                );
+              } else { // It's a single SnsCard or a soft SnsBuild
+                const singleItem = item as SnsCard | SnsBuild;
+                return (
+                  <button
+                    key={singleItem.id}
+                    onClick={() => (captureMode || (buildMode && selectedTargetCard)) && toggleMiddleCardSelection(singleItem)}
+                    className={`hover:scale-105 transition-transform ${selectedMiddleCards.some(c => c.id === singleItem.id) ? 'border-4 border-blue-500' : ''}`}
+                    disabled={!(captureMode || (buildMode && selectedTargetCard))}
+                  >
+                    {'cards' in singleItem ? ( // It's an SnsBuild (soft build)
+                      <div className="flex flex-col items-center relative" style={{ height: '150px', width: '100px' }}>
+                        {singleItem.cards.map((cardInPile, pileIndex) => (
+                          <div
+                            key={cardInPile.id}
+                            className="absolute"
+                            style={{
+                              top: `${pileIndex * 30}px`,
+                              zIndex: pileIndex,
+                            }}
+                          >
+                            <CardDisplay card={cardInPile} />
+                          </div>
+                        ))}
+                        <div className="absolute text-xs bg-black bg-opacity-50 text-white px-1 rounded"
+                             style={{ bottom: '-15px', zIndex: singleItem.cards.length + 1 }}>
+                          {singleItem.totalValue}
+                        </div>
+                      </div>
+                    ) : (
+                      <CardDisplay card={singleItem} /> // It's a single SnsCard
+                    )}
+                  </button>
+                );
+              }
+            })
           ) : (
             <p className="text-gray-400">No cards in the middle.</p>
           )}
@@ -261,7 +332,7 @@ const SetAndSeizeGameTable: React.FC<SetAndSeizeGameTableProps> = ({
                 hasPlayedCardThisTurn ||
                 selectedMiddleCards.length === 0 ||
                 (buildType === 'soft-build' && (!selectedHandCard || !selectedTargetCard || !checkValidSoftBuild(selectedHandCard, selectedTargetCard, selectedMiddleCards))) ||
-                (buildType === 'hard-build') // Hard build is always disabled for now
+                (buildType === 'hard-build' && (!selectedHandCard || !selectedTargetCard || !checkValidHardBuild(selectedHandCard, selectedTargetCard, selectedMiddleCards)))
               }
             >
               Confirm Build
