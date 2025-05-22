@@ -50,9 +50,11 @@ function App() {
     if (selectedGame === 'brazilianPoker') {
       setGameMode(mode);
       setCurrentView('game');
+      setRestartTrigger(prev => prev + 1); // Increment to force remount
     } else if (selectedGame === 'setAndSeize') {
       setGameMode(mode);
       setCurrentView('game');
+      setRestartTrigger(prev => prev + 1); // Increment to force remount
     }
   }, [selectedGame]);
 

@@ -11,7 +11,7 @@ export const createDeck = (): Card[] => {
   const deck: Card[] = [];
   for (const suit of SUITS) {
     for (const rank of RANKS) {
-      deck.push({ suit, rank, id: `${rank}${suit}` });
+      deck.push({ suit, rank, id: `${rank}${suit}`, value: getRankValue(rank) });
     }
   }
   return deck;

@@ -26,16 +26,20 @@ const SetAndSeizeGameTable: React.FC<SetAndSeizeGameTableProps> = ({
     aiMustCapture,     // Destructure AI's mustCapture state
     selectedMiddleCards, // Destructure new state
     setSelectedMiddleCards, // Destructure the setter for selectedMiddleCards
-    initializeGame,
+    resetGame,           // Destructure resetGame function
     playCard,
     toggleMiddleCardSelection, // Destructure new function
     hasPlayedCardThisTurn,
     checkValidCapture, // Destructure checkValidCapture
-    checkValidSoftBuild, // Destructure checkValidSoftBuild
+    checkValidSoftBuild, // Destructure checkValidBuild
     checkValidHardBuild, // Destructure checkValidHardBuild
+    selectedPlayerCard, // Destructure selectedPlayerCard from the hook
+    setSelectedPlayerCard, // Destructure the setter for selectedPlayerCard
+    deckSize, // Expose deck size
+    gameEnded,           // Expose gameEnded state
+    gameResult,          // Expose gameResult
   } = useSetAndSeizeGameLogic({ isOnline });
 
-  const [selectedHandCard, setSelectedHandCard] = React.useState<SnsCard | null>(null);
   const [captureMode, setCaptureMode] = React.useState<boolean>(false); // New state for capture mode
   const [showBuildOptions, setShowBuildOptions] = React.useState<boolean>(false); // New state for build options
   const [buildMode, setBuildMode] = React.useState<boolean>(false); // New state for build mode
@@ -76,12 +80,12 @@ const SetAndSeizeGameTable: React.FC<SetAndSeizeGameTableProps> = ({
 
   const handleHandCardClick = (card: SnsCard) => {
     if (currentPlayer === 'player' && !hasPlayedCardThisTurn) {
-      if (buildMode && selectedHandCard && !selectedTargetCard) {
+      if (buildMode && selectedPlayerCard && !selectedTargetCard) {
         // If in build mode, a card to drop is selected, and no target card is selected yet
         setSelectedTargetCard(card);
       } else {
         // Normal card selection or initial card for build
-        setSelectedHandCard(card);
+        setSelectedPlayerCard(card); // Use selectedPlayerCard from hook
         setSelectedMiddleCards([]); // Clear any previously selected middle cards
         setCaptureMode(false); // Reset capture mode
         setShowBuildOptions(false); // Reset build options visibility
@@ -93,14 +97,8 @@ const SetAndSeizeGameTable: React.FC<SetAndSeizeGameTableProps> = ({
   };
 
   const handleDrop = () => {
-    if (selectedHandCard) {
-      playCard(selectedHandCard, 'drop');
-      // State resets should happen after playCard confirms success,
-      // but playCard currently doesn't return success/failure.
-      // For now, remove these to prevent premature UI updates.
-      // setSelectedHandCard(null);
-      // setSelectedMiddleCards([]);
-      // setCaptureMode(false);
+    if (selectedPlayerCard) { // Use selectedPlayerCard from hook
+      playCard(selectedPlayerCard, 'drop'); // Use selectedPlayerCard from hook
     }
   };
 
@@ -110,18 +108,13 @@ const SetAndSeizeGameTable: React.FC<SetAndSeizeGameTableProps> = ({
   };
 
   const handleConfirmCapture = () => {
-    if (selectedHandCard && checkValidCapture(selectedHandCard, selectedMiddleCards)) {
-      playCard(selectedHandCard, 'capture');
-      // State resets should happen after playCard confirms success.
-      // Remove these to prevent premature UI updates.
-      // setSelectedHandCard(null);
-      // setSelectedMiddleCards([]);
-      // setCaptureMode(false);
+    if (selectedPlayerCard && checkValidCapture(selectedPlayerCard, selectedMiddleCards)) { // Use selectedPlayerCard from hook
+      playCard(selectedPlayerCard, 'capture'); // Use selectedPlayerCard from hook
     }
   };
 
   const handleCancel = () => {
-    setSelectedHandCard(null);
+    setSelectedPlayerCard(null); // Use selectedPlayerCard from hook
     setSelectedMiddleCards([]);
     setCaptureMode(false);
     setShowBuildOptions(false);
@@ -131,7 +124,7 @@ const SetAndSeizeGameTable: React.FC<SetAndSeizeGameTableProps> = ({
   };
 
   const handleCardOptionSelect = (option: 'soft-build' | 'hard-build') => {
-    console.log(`Selected option for card ${selectedHandCard?.rank}${selectedHandCard?.suit}: ${option}`);
+    console.log(`Selected option for card ${selectedPlayerCard?.rank}${selectedPlayerCard?.suit}: ${option}`); // Use selectedPlayerCard from hook
     setBuildMode(true);
     setBuildType(option);
     setShowBuildOptions(false); // Hide soft/hard build buttons
@@ -147,7 +140,7 @@ const SetAndSeizeGameTable: React.FC<SetAndSeizeGameTableProps> = ({
 
       {/* Top Area: AI Hand (hidden) and AI Collected */}
       <div className="w-full player-area opponent-area my-1">
-        <h3 className="text-xl font-semibold mb-2 text-center">AI Hand ({aiHand.length} cards)</h3>
+        <h3 className="text-xl font-semibold mb-2 text-center">AI Hand</h3>
         <div className="flex justify-center space-x-1">
           {aiHand.map((card, index) => (
             <CardDisplay key={index} card={card} isHidden={true} isHandCard={true} />
@@ -240,12 +233,13 @@ const SetAndSeizeGameTable: React.FC<SetAndSeizeGameTableProps> = ({
             <p className="text-gray-400">No cards in the middle.</p>
           )}
         </div>
+        <p className="text-lg mt-2">Cards in Deck: {deckSize}</p> {/* Display deck size */}
         <p className="text-lg mt-2">Current Player: {currentPlayer === 'player' ? 'You' : 'AI'}</p>
         {currentPlayer === 'player' && playerMustCapture && <p className="text-red-400 font-bold">MUST CAPTURE!</p>}
         {currentPlayer === 'ai' && aiMustCapture && <p className="text-red-400 font-bold">MUST CAPTURE!</p>}
 
         {/* Action Buttons */}
-        {selectedHandCard && !captureMode && !buildMode && !showBuildOptions && ( // Initial options: Drop, Capture, Build, Cancel
+        {selectedPlayerCard && !captureMode && !buildMode && !showBuildOptions && ( // Initial options: Drop, Capture, Build, Cancel
           <div className="mt-4 flex space-x-4">
             <button
               onClick={handleDrop}
@@ -277,7 +271,7 @@ const SetAndSeizeGameTable: React.FC<SetAndSeizeGameTableProps> = ({
           </div>
         )}
 
-        {selectedHandCard && showBuildOptions && ( // Show Soft/Hard Build options
+        {selectedPlayerCard && showBuildOptions && ( // Show Soft/Hard Build options
           <div className="mt-4 flex space-x-4">
             <button
               onClick={() => handleCardOptionSelect('soft-build')}
@@ -302,7 +296,7 @@ const SetAndSeizeGameTable: React.FC<SetAndSeizeGameTableProps> = ({
           </div>
         )}
 
-        {selectedHandCard && buildMode && !selectedTargetCard && ( // Prompt to select target card
+        {selectedPlayerCard && buildMode && !selectedTargetCard && ( // Prompt to select target card
           <div className="mt-4 flex flex-col items-center space-y-2">
             <p className="text-lg font-bold text-yellow-400">Select a TARGET card from your hand.</p>
             <button
@@ -314,7 +308,7 @@ const SetAndSeizeGameTable: React.FC<SetAndSeizeGameTableProps> = ({
           </div>
         )}
 
-        {selectedHandCard && buildMode && selectedTargetCard && ( // Build mode: select middle cards
+        {selectedPlayerCard && buildMode && selectedTargetCard && ( // Build mode: select middle cards
           <div className="mt-4 flex flex-col items-center space-y-2">
             <p className="text-lg font-bold text-yellow-400">
               Target Value: {selectedTargetCard.rank === 'T' ? '10' : selectedTargetCard.rank}
@@ -322,17 +316,8 @@ const SetAndSeizeGameTable: React.FC<SetAndSeizeGameTableProps> = ({
             <div className="flex space-x-4">
             <button
               onClick={() => {
-                if (selectedHandCard && selectedTargetCard && buildType) {
-                  playCard(selectedHandCard, 'build', selectedTargetCard, buildType);
-                  // State resets should happen after playCard confirms success.
-                  // Remove these to prevent premature UI updates.
-                  // setSelectedHandCard(null);
-                  // setSelectedMiddleCards([]);
-                  // setCaptureMode(false);
-                  // setShowBuildOptions(false);
-                  // setBuildMode(false);
-                  // setBuildType(null);
-                  // setSelectedTargetCard(null);
+                if (selectedPlayerCard && selectedTargetCard && buildType) { // Use selectedPlayerCard from hook
+                  playCard(selectedPlayerCard, 'build', selectedTargetCard, buildType); // Use selectedPlayerCard from hook
                 }
               }}
               className="px-4 py-2 bg-purple-600 rounded hover:bg-purple-700 disabled:opacity-50"
@@ -340,8 +325,8 @@ const SetAndSeizeGameTable: React.FC<SetAndSeizeGameTableProps> = ({
                 currentPlayer !== 'player' ||
                 hasPlayedCardThisTurn ||
                 selectedMiddleCards.length === 0 ||
-                (buildType === 'soft-build' && (!selectedHandCard || !selectedTargetCard || !checkValidSoftBuild(selectedHandCard, selectedTargetCard, selectedMiddleCards))) ||
-                (buildType === 'hard-build' && (!selectedHandCard || !selectedTargetCard || !checkValidHardBuild(selectedHandCard, selectedTargetCard, selectedMiddleCards)))
+                (buildType === 'soft-build' && (!selectedPlayerCard || !selectedTargetCard || !checkValidSoftBuild(selectedPlayerCard, selectedTargetCard, selectedMiddleCards))) || // Use selectedPlayerCard from hook
+                (buildType === 'hard-build' && (!selectedPlayerCard || !selectedTargetCard || !checkValidHardBuild(selectedPlayerCard, selectedTargetCard, selectedMiddleCards))) // Use selectedPlayerCard from hook
               }
             >
               Confirm Build
@@ -356,7 +341,7 @@ const SetAndSeizeGameTable: React.FC<SetAndSeizeGameTableProps> = ({
           </div>
         )}
 
-        {selectedHandCard && captureMode && ( // Show confirm/cancel in capture mode
+        {selectedPlayerCard && captureMode && ( // Show confirm/cancel in capture mode
           <div className="mt-4 flex space-x-4">
             <button
               onClick={handleConfirmCapture}
@@ -364,7 +349,7 @@ const SetAndSeizeGameTable: React.FC<SetAndSeizeGameTableProps> = ({
               disabled={
                 currentPlayer !== 'player' ||
                 hasPlayedCardThisTurn ||
-                !checkValidCapture(selectedHandCard, selectedMiddleCards)
+                !checkValidCapture(selectedPlayerCard, selectedMiddleCards) // Use selectedPlayerCard from hook
               }
             >
               Confirm Capture
@@ -388,7 +373,7 @@ const SetAndSeizeGameTable: React.FC<SetAndSeizeGameTableProps> = ({
                 <button
                   key={index}
                   onClick={() => handleHandCardClick(card)}
-                  className={`hover:scale-105 transition-transform ${selectedHandCard?.id === card.id ? 'border-4 border-yellow-500' : ''}`}
+                  className={`hover:scale-105 transition-transform ${selectedPlayerCard?.id === card.id ? 'border-4 border-yellow-500' : ''}`}
                   disabled={currentPlayer !== 'player' || hasPlayedCardThisTurn}
                 >
                   <CardDisplay card={card} isHandCard={true} />
@@ -405,6 +390,23 @@ const SetAndSeizeGameTable: React.FC<SetAndSeizeGameTableProps> = ({
           </div>
         </div>
       </div>
+
+      {gameEnded && gameResult && (
+        <div className="absolute inset-0 bg-black bg-opacity-75 flex flex-col items-center justify-center text-white text-center p-4">
+          <h2 className="text-4xl font-bold mb-4">Game Over!</h2>
+          <p className="text-2xl mb-2">Player Score: {gameResult.playerScore}</p>
+          <p className="text-2xl mb-4">AI Score: {gameResult.aiScore}</p>
+          <h3 className="text-3xl font-bold text-yellow-400">
+            {gameResult.winner === 'player' ? 'You Win!' : gameResult.winner === 'ai' ? 'AI Wins!' : 'It\'s a Draw!'}
+          </h3>
+          <button
+            onClick={resetGame}
+            className="mt-6 px-6 py-3 bg-blue-600 rounded-lg text-xl font-semibold hover:bg-blue-700 transition-colors"
+          >
+            Play Again
+          </button>
+        </div>
+      )}
     </div>
   );
 };

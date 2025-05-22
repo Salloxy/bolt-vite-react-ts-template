@@ -1,3 +1,4 @@
+// DEBUG: Attempting write at 2025-05-21 22:16:45
 import { useState, useEffect, useCallback } from 'react';
 import { SnsCard, SnsSuit, SnsRank, SnsBuild } from '../types';
 import { getRankValue } from '../lib/utils'; // Import getRankValue
@@ -169,13 +170,9 @@ const canAllCardsBePartitioned = (
       // Recursively check if the remaining cards can be partitioned
       return canAllCardsBePartitioned(targetSum, cards, nextOverallUsedIndices);
     }
-
-    // If current subset sum exceeds target or no more cards to consider for this subset
     if (currentSubsetSum > targetSum || startIndexForSubset >= cards.length) {
       return false;
     }
-
-    // Try to add cards to the current subset
     for (let i = startIndexForSubset; i < cards.length; i++) {
       if (!tempUsedIndices[i]) { // Only consider cards not yet used in this temporary subset
         const card = cards[i];
@@ -257,9 +254,14 @@ const useSetAndSeizeGameLogic = ({ isOnline }: UseSetAndSeizeGameLogicProps) => 
   const [aiLastBuildValue, setAiLastBuildValue] = useState<number | null>(null);
   const [lastCapturePlayerId, setLastCapturePlayerId] = useState<'player' | 'ai' | null>(null);
   const [hasPlayedCardThisTurn, setHasPlayedCardThisTurn] = useState(false);
-  const [selectedMiddleCards, setSelectedMiddleCards] = useState<(SnsCard | SnsBuild)[]>([]); // New state for selected middle cards
+  const [selectedMiddleCards, setSelectedMiddleCards] = useState<(SnsCard | SnsBuild)[]>([]);
+  const [selectedPlayerCard, setSelectedPlayerCard] = useState<SnsCard | null>(null); // New state for selected player card
   const [playerJustMadeBuild, setPlayerJustMadeBuild] = useState(false);
   const [aiJustMadeBuild, setAiJustMadeBuild] = useState(false);
+  const [gameEnded, setGameEnded] = useState(false); // New state to track game end
+  const [gameResult, setGameResult] = useState<{ winner: 'player' | 'ai' | 'draw' | null; playerScore: number; aiScore: number } | null>(null);
+  const [gamePhase, setGamePhase] = useState<'loading' | 'playing' | 'gameOver'>('loading'); // New state for game phase
+  const [isGameInitialized, setIsGameInitialized] = useState(false); // New state to track if game is fully initialized
 
   const toggleMiddleCardSelection = useCallback((item: SnsCard | SnsBuild) => {
     setSelectedMiddleCards(prev => {
@@ -269,11 +271,9 @@ const useSetAndSeizeGameLogic = ({ isOnline }: UseSetAndSeizeGameLogicProps) => 
           (mItem): mItem is SnsBuild =>
             'isHard' in mItem && mItem.isHard && mItem.hardBuildGroupId === item.hardBuildGroupId
         );
-
         const isGroupCurrentlySelected = groupMembers.every(member =>
           prev.some(pItem => pItem.id === member.id)
         );
-
         if (isGroupCurrentlySelected) {
           // If the entire group is selected, deselect all members of the group
           return prev.filter(pItem => !groupMembers.some(member => member.id === pItem.id));
@@ -312,6 +312,7 @@ const useSetAndSeizeGameLogic = ({ isOnline }: UseSetAndSeizeGameLogicProps) => 
   }, []);
 
   const initializeGame = useCallback(() => {
+    console.log('initializeGame called!'); // Debugging log
     const newDeck = shuffleDeck(createDeck());
     const initialPlayerHand: SnsCard[] = [];
     const initialAiHand: SnsCard[] = [];
@@ -331,6 +332,7 @@ const useSetAndSeizeGameLogic = ({ isOnline }: UseSetAndSeizeGameLogicProps) => 
     setDeck(newDeck);
     setPlayerHand(initialPlayerHand);
     setAiHand(initialAiHand);
+    console.log(`initializeGame: Player hand size: ${initialPlayerHand.length}, AI hand size: ${initialAiHand.length}`); // New debug log
     setMiddleCards(initialMiddleCards as (SnsCard | SnsBuild)[]); // Cast to the correct type
     setPlayerCollected([]);
     setAiCollected([]);
@@ -341,7 +343,19 @@ const useSetAndSeizeGameLogic = ({ isOnline }: UseSetAndSeizeGameLogicProps) => 
     setAiLastBuildValue(null);     // Reset AI's lastBuildValue
     setLastCapturePlayerId(null);
     setHasPlayedCardThisTurn(false);
+    setGameEnded(false); // Ensure game is not ended
+    setGameResult(null); // Clear game result
+    setGamePhase('playing'); // Set phase to playing after initialization
+    setIsGameInitialized(true); // Mark game as initialized after all setup
   }, []);
+
+  const resetGame = useCallback(() => {
+    setGameEnded(false); // Explicitly reset gameEnded first
+    setGameResult(null); // Explicitly clear gameResult first
+    setGamePhase('loading'); // Reset phase to loading
+    setIsGameInitialized(false); // Mark game as not initialized
+    initializeGame();
+  }, [initializeGame, setGameEnded, setGameResult]); // Add setGameEnded and setGameResult to dependencies
 
   useEffect(() => {
     initializeGame();
@@ -368,33 +382,123 @@ const useSetAndSeizeGameLogic = ({ isOnline }: UseSetAndSeizeGameLogicProps) => 
       }
 
       setHasPlayedCardThisTurn(false); // Reset for the next player's turn
+      setSelectedMiddleCards([]); // Clear selected middle cards at the end of the turn
+      setSelectedPlayerCard(null); // Clear selected player card at the end of the turn
       return prev === 'player' ? 'ai' : 'player';
     });
-  }, [playerJustMadeBuild, aiJustMadeBuild, setPlayerMustCapture, setPlayerLastBuildValue, setPlayerJustMadeBuild, setAiMustCapture, setAiLastBuildValue, setAiJustMadeBuild]);
+  }, [playerJustMadeBuild, aiJustMadeBuild, setPlayerMustCapture, setPlayerLastBuildValue, setPlayerJustMadeBuild, setAiMustCapture, setAiLastBuildValue, setAiJustMadeBuild, setSelectedMiddleCards, setSelectedPlayerCard]);
+
+  const calculateSetAndSeizeScores = useCallback(() => {
+    console.log('Calculating scores...');
+    const calculatePlayerPoints = (collectedCards: SnsCard[]): number => {
+      let points = 0;
+      console.log(`calculatePlayerPoints for ${collectedCards.length} cards:`); // Debug log
+
+      collectedCards.forEach(card => {
+        // Each Ace (A♠, A♣, A♦, A♥)
+        if (card.rank === 'A') {
+          points += 1;
+          console.log(`  +1 for Ace (${card.id}). Current points: ${points}`); // Debug log
+        }
+        // 2 of Spades (2♠)
+        if (card.rank === '2' && card.suit === 'S') {
+          points += 1;
+          console.log(`  +1 for 2S (${card.id}). Current points: ${points}`); // Debug log
+        }
+        // 10 of Diamonds (10♦)
+        if (card.rank === 'T' && card.suit === 'D') {
+          points += 2;
+          console.log(`  +2 for 10D (${card.id}). Current points: ${points}`); // Debug log
+        }
+      });
+      console.log(`  Individual card points total: ${points}`); // Debug log
+      return points;
+    };
+
+    let playerScore = calculatePlayerPoints(playerCollected);
+    let aiScore = calculatePlayerPoints(aiCollected);
+
+    console.log(`Initial scores - Player: ${playerScore}, AI: ${aiScore}`); // Debug log
+
+    // Calculate "Most Spades" point globally
+    const playerSpades = playerCollected.filter(card => card.suit === 'S').length;
+    const aiSpades = aiCollected.filter(card => card.suit === 'S').length;
+    console.log(`Spades - Player: ${playerSpades}, AI: ${aiSpades}`); // Debug log
+
+    if (playerSpades > aiSpades) {
+      playerScore += 1;
+      console.log(`Player gets +1 for Most Spades. Player score: ${playerScore}`); // Debug log
+    } else if (aiSpades > playerSpades) {
+      aiScore += 1;
+      console.log(`AI gets +1 for Most Spades. AI score: ${aiScore}`); // Debug log
+    } else {
+      console.log('Tie in Spades, no points awarded.'); // Debug log
+    }
+
+    // Calculate "Most Total Cards" point globally
+    const playerTotalCards = playerCollected.length;
+    const aiTotalCards = aiCollected.length;
+    console.log(`Total Cards - Player: ${playerTotalCards}, AI: ${aiTotalCards}`); // Debug log
+
+    if (playerTotalCards > aiTotalCards) {
+      playerScore += 3;
+      console.log(`Player gets +3 for Most Cards. Player score: ${playerScore}`); // Debug log
+    } else if (aiTotalCards > playerTotalCards) {
+      aiScore += 3;
+      console.log(`AI gets +3 for Most Cards. AI score: ${aiScore}`); // Debug log
+    } else if (playerTotalCards === aiTotalCards && playerTotalCards === 26) {
+      console.log('Tie in total cards (26 each), 3 points for most cards not awarded.');
+    } else if (playerTotalCards === aiTotalCards) {
+      console.log('Tie in total cards (not 26 each), no points awarded.'); // Debug log
+    }
+
+    let winner: 'player' | 'ai' | 'draw' | null = null;
+    if (playerScore > aiScore) {
+      winner = 'player';
+    } else if (aiScore > playerScore) {
+      winner = 'ai';
+    } else {
+      winner = 'draw';
+    }
+
+    console.log(`Game Over! Player Score: ${playerScore}, AI Score: ${aiScore}. Winner: ${winner}`);
+    setGameResult({ winner, playerScore, aiScore });
+  }, [playerCollected, aiCollected]);
 
   useEffect(() => {
-    // Only trigger this logic if both hands are empty
-    if (playerHand.length === 0 && aiHand.length === 0) {
+    console.log(`Game Over useEffect: playerHand.length=${playerHand.length}, aiHand.length=${aiHand.length}, gameEnded=${gameEnded}, gamePhase=${gamePhase}, isGameInitialized=${isGameInitialized}`); // New debug log
+    // Only trigger this logic if both hands are empty and the game has not already ended AND game is in playing phase AND is initialized
+    if (isGameInitialized && playerHand.length === 0 && aiHand.length === 0 && !gameEnded && gamePhase === 'playing') {
       if (deck.length > 0) {
         // Deal new hands if deck is not empty
         dealNewHands(deck);
       } else {
         // Game over logic: Deck is empty and no more cards to deal
         console.log('Deck is empty. Game Over!');
+        setGamePhase('gameOver'); // Set phase to game over
         // Last player who captured gets middle cards
         if (lastCapturePlayerId) {
           const remainingMiddleCards = getIndividualCardsFromSelection(middleCards);
           if (lastCapturePlayerId === 'player') {
-            setPlayerCollected(prev => [...prev, ...remainingMiddleCards]);
+            setPlayerCollected(prev => {
+              const updatedCollected = [...prev, ...remainingMiddleCards];
+              console.log('Player collected remaining middle cards:', updatedCollected.map(c => c.id));
+              return updatedCollected;
+            });
           } else {
-            setAiCollected(prev => [...prev, ...remainingMiddleCards]);
+            setAiCollected(prev => {
+              const updatedCollected = [...prev, ...remainingMiddleCards];
+              console.log('AI collected remaining middle cards:', updatedCollected.map(c => c.id));
+              return updatedCollected;
+            });
           }
           setMiddleCards([]); // Clear middle cards
         }
-        // TODO: Implement final scoring and game end state
+        setGameEnded(true); // Signal that the game has ended
+        calculateSetAndSeizeScores(); // Calculate scores when the game ends
       }
     }
-  }, [playerHand, aiHand, deck, dealNewHands, lastCapturePlayerId, middleCards, setPlayerCollected, setAiCollected, setMiddleCards, getIndividualCardsFromSelection]);
+  }, [playerHand, aiHand, deck, dealNewHands, lastCapturePlayerId, middleCards, setPlayerCollected, setAiCollected, setMiddleCards, getIndividualCardsFromSelection, calculateSetAndSeizeScores, gameEnded, gamePhase, setGamePhase, isGameInitialized]); // Added isGameInitialized to dependencies
 
   const checkValidCapture = useCallback((handCard: SnsCard, selectedMiddleItems: (SnsCard | SnsBuild)[]): boolean => {
     if (selectedMiddleItems.length === 0) {
@@ -538,6 +642,8 @@ const useSetAndSeizeGameLogic = ({ isOnline }: UseSetAndSeizeGameLogicProps) => 
   ) => {
     if (hasPlayedCardThisTurn) {
       console.log(`${currentPlayer} has already played a card this turn.`);
+      setSelectedMiddleCards([]); // Clear any existing selection
+      setSelectedPlayerCard(null); // Clear selected player card
       return;
     }
 
@@ -560,12 +666,12 @@ const useSetAndSeizeGameLogic = ({ isOnline }: UseSetAndSeizeGameLogicProps) => 
           console.log(`${currentPlayer} is fulfilling 'Must Capture' exception by building same value (${newBuildValue}).`);
         } else {
           console.log(`Invalid move: ${currentPlayer} must capture or build same value (${currentLastBuildValue}) after a build. Tried to build ${newBuildValue}.`);
-          setSelectedMiddleCards([]); // Clear selected middle cards
+          setSelectedPlayerCard(null); // Clear selected player card on invalid move
           return; // Stop the function execution
         }
       } else {
         console.log(`Invalid move: ${currentPlayer} must capture after a build. Tried to ${actionType}.`);
-        setSelectedMiddleCards([]); // Clear selected middle cards
+        setSelectedPlayerCard(null); // Clear selected player card on invalid move
         return; // Stop the function execution
       }
     }
@@ -583,7 +689,7 @@ const useSetAndSeizeGameLogic = ({ isOnline }: UseSetAndSeizeGameLogicProps) => 
     } else if (actionType === 'capture') {
       if (!checkValidCapture(cardToPlay, selectedMiddleCards)) {
         console.log("Invalid capture: Selected middle cards do not sum up to the played card's value.");
-        setSelectedMiddleCards([]); // Clear selected middle cards
+        setSelectedPlayerCard(null); // Clear selected player card on invalid move
         return; // Stop the function execution
       }
 
@@ -600,7 +706,6 @@ const useSetAndSeizeGameLogic = ({ isOnline }: UseSetAndSeizeGameLogicProps) => 
       setLastCapturePlayerId(currentPlayer);
       setPlayerMustCaptureState(false); // Capture was performed, reset mustCapture for current player
       setPlayerLastBuildValueState(null); // Reset lastBuildValue for current player after capture
-      setSelectedMiddleCards([]); // Clear selected middle cards after capture
       // If a capture happened, the mustCapture rule ends for the *other* player if they had it.
       if (currentPlayer === 'player') {
         setAiMustCapture(false);
@@ -617,13 +722,13 @@ const useSetAndSeizeGameLogic = ({ isOnline }: UseSetAndSeizeGameLogicProps) => 
         const isBuildingOnHardBuildForSoft = selectedMiddleCards.some(item => 'isHard' in item && item.isHard);
         if (isBuildingOnHardBuildForSoft) {
           console.log("Invalid soft build: Cannot soft build on a hard build.");
-          setSelectedMiddleCards([]);
+          setSelectedPlayerCard(null); // Clear selected player card on invalid move
           return;
         }
 
         if (!checkValidSoftBuild(cardToPlay, targetCard, selectedMiddleCards)) {
           console.log("Invalid soft build: Selected cards do not sum up to the target value.");
-          setSelectedMiddleCards([]);
+          setSelectedPlayerCard(null); // Clear selected player card on invalid move
           return;
         }
         console.log(`${currentPlayer} performs a soft build with ${cardToPlay.rank}${cardToPlay.suit} onto`, selectedMiddleCards, `to target ${targetCard.rank}${targetCard.suit}`);
@@ -648,7 +753,6 @@ const useSetAndSeizeGameLogic = ({ isOnline }: UseSetAndSeizeGameLogicProps) => 
 
         setPlayerMustCaptureState(true); // A build always results in a capture opportunity for current player
         setPlayerLastBuildValueState(newBuild.totalValue); // Store the value of the new build for current player
-        setSelectedMiddleCards([]); // Clear selected middle cards after build
         if (currentPlayer === 'player') {
           setPlayerJustMadeBuild(true);
         } else {
@@ -667,7 +771,7 @@ const useSetAndSeizeGameLogic = ({ isOnline }: UseSetAndSeizeGameLogicProps) => 
           const allHardBuildsMatchTarget = selectedHardBuilds.every(build => build.totalValue === targetValue);
           if (!allHardBuildsMatchTarget) {
             console.log("Invalid hard build: When building on existing hard builds, the new build's value must match the existing hard build's value.");
-            setSelectedMiddleCards([]);
+            setSelectedPlayerCard(null); // Clear selected player card on invalid move
             return;
           }
         }
@@ -676,7 +780,7 @@ const useSetAndSeizeGameLogic = ({ isOnline }: UseSetAndSeizeGameLogicProps) => 
 
         if (!validHardBuilds) {
           console.log("Invalid hard build: Selected cards do not form multiple builds for the target value.");
-          setSelectedMiddleCards([]); // Clear selected middle cards
+          setSelectedPlayerCard(null); // Clear selected player card on invalid move
           return; // Stop the function execution
         }
         console.log(`${currentPlayer} performs a hard build with ${cardToPlay.rank}${cardToPlay.suit} and selected cards:`, selectedMiddleCards, `to target ${targetCard.rank}${targetCard.suit}`);
@@ -732,7 +836,6 @@ const useSetAndSeizeGameLogic = ({ isOnline }: UseSetAndSeizeGameLogicProps) => 
 
         setPlayerMustCaptureState(true); // A build always results in a capture opportunity for current player
         setPlayerLastBuildValueState(getRankValue(targetCard.rank)); // Store the value of the new hard build for current player
-        setSelectedMiddleCards([]); // Clear selected middle cards after build
         if (currentPlayer === 'player') {
           setPlayerJustMadeBuild(true);
         } else {
@@ -750,7 +853,7 @@ const useSetAndSeizeGameLogic = ({ isOnline }: UseSetAndSeizeGameLogicProps) => 
 
     setHasPlayedCardThisTurn(true);
     endTurn();
-  }, [currentPlayer, endTurn, hasPlayedCardThisTurn, selectedMiddleCards, checkValidCapture, checkValidSoftBuild, checkValidHardBuild, playerMustCapture, aiMustCapture, playerLastBuildValue, aiLastBuildValue, getIndividualCardsFromSelection, setPlayerMustCapture, setAiMustCapture, setPlayerLastBuildValue, setAiLastBuildValue, setPlayerJustMadeBuild, setAiJustMadeBuild]);
+  }, [currentPlayer, endTurn, hasPlayedCardThisTurn, selectedMiddleCards, setSelectedPlayerCard, checkValidCapture, checkValidSoftBuild, checkValidHardBuild, playerMustCapture, aiMustCapture, playerLastBuildValue, aiLastBuildValue, getIndividualCardsFromSelection, setPlayerMustCapture, setAiMustCapture, setPlayerLastBuildValue, setAiLastBuildValue, setPlayerJustMadeBuild, setAiJustMadeBuild]);
 
   // AI turn logic
   useEffect(() => {
@@ -771,6 +874,7 @@ const useSetAndSeizeGameLogic = ({ isOnline }: UseSetAndSeizeGameLogicProps) => 
 
   return {
     deck,
+    deckSize: deck.length, // Expose deck size
     playerHand,
     aiHand,
     middleCards,
@@ -781,7 +885,10 @@ const useSetAndSeizeGameLogic = ({ isOnline }: UseSetAndSeizeGameLogicProps) => 
     aiMustCapture,     // Expose aiMustCapture
     selectedMiddleCards, // Expose selected middle cards
     setSelectedMiddleCards, // Expose the setter for selectedMiddleCards
+    selectedPlayerCard, // Expose selectedPlayerCard
+    setSelectedPlayerCard, // Expose the setter for selectedPlayerCard
     initializeGame,
+    resetGame,           // Expose resetGame function
     playCard,
     toggleMiddleCardSelection, // Expose toggle function
     hasPlayedCardThisTurn,
@@ -790,7 +897,9 @@ const useSetAndSeizeGameLogic = ({ isOnline }: UseSetAndSeizeGameLogicProps) => 
     checkValidHardBuild, // Expose checkValidHardBuild
     playerJustMadeBuild, // Expose playerJustMadeBuild
     aiJustMadeBuild,     // Expose aiJustMadeBuild
-    // Add other game state and actions as needed
+    gameEnded,           // Expose gameEnded state
+    gameResult,          // Expose gameResult
+    gamePhase,           // Expose gamePhase
   };
 };
 

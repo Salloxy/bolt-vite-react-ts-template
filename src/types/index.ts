@@ -7,6 +7,7 @@ export interface Card {
   suit: Suit;
   rank: Rank;
   id: string; // e.g., "KH" for King of Hearts, "AS" for Ace of Spades
+  value: number; // Numeric value for calculations
   hidden?: boolean; // To mark the 5th card as hidden
 }
 
