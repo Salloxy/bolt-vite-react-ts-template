@@ -341,14 +341,29 @@ const useGameLogic = ({ isOnlineMultiplayer = false, onGoHome }: UseGameLogicPro
         setError(null);
       });
 
-      newSocket.on('turnTimeout', ({ gameId, playerId: timedOutPlayerId }: { gameId: string, playerId: string }) => {
-        if (gameStateRef.current?.id === gameId && playerIdRef.current === timedOutPlayerId) {
-          console.log(`Player ${timedOutPlayerId} timed out. Navigating home.`);
-          if (onGoHome) { // Use onGoHome directly from props
-            onGoHome();
+      newSocket.on('kickedDueToTimeout', ({ message }: { gameId: string, playerId: string, message: string }) => {
+        console.log('Kicked due to timeout:', message);
+        setGameState(prev => {
+          if (prev && prev.gamePhase !== 'gameOver') {
+            return { ...prev, gamePhase: 'gameOver', winnerMessage: message };
           }
-        }
+          return prev;
+        });
+        setGameResults(message);
+        setError(null);
+        // The socket will also disconnect, triggering the 'disconnect' handler.
       });
+
+      // The 'turnTimeout' event is no longer used as players are kicked on timeout.
+      // The 'kickedDueToTimeout' or 'opponentDisconnected' events will handle this.
+      // newSocket.on('turnTimeout', ({ gameId, playerId: timedOutPlayerId }: { gameId: string, playerId: string }) => {
+      //   if (gameStateRef.current?.id === gameId && playerIdRef.current === timedOutPlayerId) {
+      //     console.log(`Player ${timedOutPlayerId} timed out. Navigating home.`);
+      //     if (onGoHome) {
+      //       onGoHome();
+      //     }
+      //   }
+      // });
 
       return () => {
         console.log('Disconnecting socket effect cleanup due to isOnlineMultiplayer change or unmount.');

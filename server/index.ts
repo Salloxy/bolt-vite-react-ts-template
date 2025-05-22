@@ -455,20 +455,18 @@ const startTurnTimer = (room: GameRoom) => {
 
     const timedOutPlayerSocket = pokerIo.sockets.sockets.get(currentPlayerSocketId);
     if (timedOutPlayerSocket) {
-      timedOutPlayerSocket.emit('turnTimeout', { gameId: room.id, playerId: currentPlayerSocketId });
+      timedOutPlayerSocket.emit('kickedDueToTimeout', { gameId: room.id, playerId: currentPlayerSocketId, message: 'You were kicked for inactivity.' });
+      timedOutPlayerSocket.disconnect(true); // Disconnect the timed-out player
     }
 
-    const currentPlayerIndex = room.players.findIndex((p: RoomPlayerInfo) => p.socketId === currentPlayerSocketId);
-    const nextPlayerIndex = (currentPlayerIndex + 1) % room.players.length;
-    room.gameState.currentPlayerId = room.players[nextPlayerIndex].socketId;
-    room.gameState.turnNumber++;
-    room.gameState.heldCard = null;
+    const otherPlayer = room.players.find((p: RoomPlayerInfo) => p.socketId !== currentPlayerSocketId);
+    if (otherPlayer) {
+      pokerIo.to(otherPlayer.socketId).emit('opponentDisconnected', 'Your opponent was kicked for inactivity. Game over.');
+    }
 
-    console.log(`Switched to player ${room.gameState.currentPlayerId} due to timeout in room ${room.id}`);
-
-    startTurnTimer(room);
-
-    pokerIo.to(room.id).emit('gameStateUpdate', room.gameState);
+    clearTurnTimer(room);
+    rooms.delete(room.id);
+    console.log(`Brazilian Poker Room ${room.id} closed due to player timeout.`);
 
   }, room.turnTimerDuration);
 
@@ -511,8 +509,6 @@ pokerIo.on('connection', (socket) => {
     // Ensure player is not already in queue or a game (this check might seem redundant now, but good for sanity)
     // Note: The previous cleanup should handle most cases. This check remains as a safeguard.
     if (matchmakingQueue.find((s: Socket) => s.id === socket.id) || Array.from(rooms.values()).find((r: GameRoom) => r.players.some((p: RoomPlayerInfo) => p.socketId === socket.id))) {
-      // This condition should ideally not be met if the cleanup above worked.
-      // If it is met, it implies a more complex state issue or race condition.
       console.warn(`Player ${socket.id} still found in queue/game after cleanup attempt. Emitting error.`);
       socket.emit('error', 'Already in queue or game. Cleanup might have failed.');
       return;
@@ -588,10 +584,191 @@ const startSnsTurnTimer = (room: SnsGameRoom) => {
   setAndSeizeIo.to(room.id).emit('snsGameStateUpdate', gameStateToSendUpdate);
 };
 
+const calculateSetAndSeizeScores = (room: SnsGameRoom) => {
+  console.log(`Calculating Set & Seize scores for game ${room.id}`);
+  const calculatePlayerPoints = (collectedCards: SnsCard[]): number => {
+    let points = 0;
+    collectedCards.forEach(card => {
+      if (card.rank === 'A') {
+        points += 1;
+      }
+      if (card.rank === '2' && card.suit === 'S') {
+        points += 1;
+      }
+      if (card.rank === 'T' && card.suit === 'D') {
+        points += 2;
+      }
+    });
+    return points;
+  };
+
+  const player1State = room.snsGameState.players[0];
+  const player2State = room.snsGameState.players[1];
+
+  let player1Score = calculatePlayerPoints(player1State.collectedCards);
+  let player2Score = calculatePlayerPoints(player2State.collectedCards);
+
+  const player1Spades = player1State.collectedCards.filter(card => card.suit === 'S').length;
+  const player2Spades = player2State.collectedCards.filter(card => card.suit === 'S').length;
+
+  if (player1Spades > player2Spades) {
+    player1Score += 1;
+  } else if (player2Spades > player1Spades) {
+    player2Score += 1;
+  }
+
+  const player1TotalCards = player1State.collectedCards.length;
+  const player2TotalCards = player2State.collectedCards.length;
+
+  if (player1TotalCards > player2TotalCards) {
+    player1Score += 3;
+  } else if (player2TotalCards > player1TotalCards) {
+    player2Score += 3;
+  }
+
+  let winner: 'player' | 'ai' | 'draw' | null = null;
+  if (player1Score > player2Score) {
+    winner = 'player';
+  } else if (player2Score > player1Score) {
+    winner = 'ai';
+  } else {
+    winner = 'draw';
+  }
+
+  room.snsGameState.gameResult = {
+    winner,
+    playerScore: player1Score,
+    aiScore: player2Score,
+  };
+
+  console.log(`Set & Seize Game Over! Player 1 Score: ${player1Score}, Player 2 Score: ${player2Score}. Winner: ${winner}`);
+};
+
+const handleGameEvaluation = (room: GameRoom) => {
+  clearTurnTimer(room);
+  console.log(`Evaluating game ${room.id}`);
+  const playersWithRevealedCards = room.gameState.players.map((player: Player) => ({
+    ...player,
+    hands: player.hands.map((hand: Hand) => ({
+      ...hand,
+      cards: hand.cards.map((card: Card | null) => card ? { ...card, hidden: false } : null)
+    }))
+  }));
+
+  const handEvalResults: { p1Wins: number; p2Wins: number; individualWinners: (string | null)[] } = {
+    p1Wins: 0,
+    p2Wins: 0,
+    individualWinners: Array(5).fill(null),
+  };
+
+  type PlayerWithEvaluatedHands = Player & { hands: (Hand & { evaluation?: EvaluatedHand | null })[] };
+
+  const finalPlayerStates: PlayerWithEvaluatedHands[] = playersWithRevealedCards.map((p: Player): PlayerWithEvaluatedHands => ({
+    ...p,
+    hands: p.hands.map((h: Hand) => ({ ...h, evaluation: evaluateHand(h.cards) }))
+  }));
+
+
+  for (let i = 0; i < 5; i++) {
+    const evalP1 = finalPlayerStates[0].hands[i].evaluation;
+    const evalP2 = finalPlayerStates[1].hands[i].evaluation;
+
+    if (evalP1 && evalP2) {
+      const comparison = compareEvaluatedHands(evalP1, evalP2);
+      if (comparison > 0) {
+        handEvalResults.p1Wins++;
+        handEvalResults.individualWinners[i] = finalPlayerStates[0].id;
+      } else if (comparison < 0) {
+        handEvalResults.p2Wins++;
+        handEvalResults.individualWinners[i] = finalPlayerStates[1].id;
+      } else {
+        handEvalResults.individualWinners[i] = 'Tie';
+      }
+    } else if (evalP1) { handEvalResults.p1Wins++; handEvalResults.individualWinners[i] = finalPlayerStates[0].id; }
+    else if (evalP2) { handEvalResults.p2Wins++; handEvalResults.individualWinners[i] = finalPlayerStates[1].id; }
+  }
+
+  let overallWinnerMsg = "Game Over! ";
+  if (handEvalResults.p1Wins > handEvalResults.p2Wins) {
+    overallWinnerMsg += `${finalPlayerStates[0].id} wins the game (${handEvalResults.p1Wins} to ${handEvalResults.p2Wins})!`;
+  } else if (handEvalResults.p2Wins > handEvalResults.p1Wins) {
+    overallWinnerMsg += `${finalPlayerStates[1].id} wins the game (${handEvalResults.p2Wins} to ${handEvalResults.p1Wins})!`;
+  } else {
+    overallWinnerMsg += `It's a tie overall! (${handEvalResults.p1Wins} to ${handEvalResults.p2Wins})`;
+  }
+
+  room.gameState.players = finalPlayerStates;
+  room.gameState.gamePhase = 'gameOver';
+  room.gameState.winnerMessage = overallWinnerMsg;
+  room.gameState.individualHandWinners = handEvalResults.individualWinners;
+
+  pokerIo.to(room.id).emit('gameStateUpdate', room.gameState);
+  console.log(`Game ${room.id} ended. Winner: ${overallWinnerMsg}.`);
+
+  setTimeout(() => {
+    if (rooms.has(room.id)) {
+      rooms.delete(room.id);
+      console.log(`[handleGameEvaluation] Room ${room.id} closed after game over.`);
+    } else {
+      console.log(`[handleGameEvaluation] Room ${room.id} already deleted, no action needed.`);
+    }
+  }, 5000);
+};
+
+const canPlaceCardInHandServer = (player: Player, handIndex: number, targetSlot: number): boolean => {
+  if (targetSlot < 0 || targetSlot > 4) return false;
+  const cardCounts = player.hands.map((h: Hand) => h.cards.filter((c: Card | null) => c !== null).length);
+  const cardsInTargetHandCurrently = cardCounts[handIndex];
+
+  if (cardsInTargetHandCurrently !== targetSlot) {
+    console.error(`Server validation: Mismatch between targetSlot (${targetSlot}) and actual empty slot count (${cardsInTargetHandCurrently}) in hand ${handIndex} for player ${player.id}.`);
+    return false;
+  }
+  const numCardsTargetHandWillHave = cardsInTargetHandCurrently + 1;
+
+  if (numCardsTargetHandWillHave === 3) {
+    return player.hands.every((h: Hand) => h.cards.filter((c: Card | null) => c !== null).length >= 2);
+  }
+  if (numCardsTargetHandWillHave === 4) {
+    return player.hands.every((h: Hand) => h.cards.filter((c: Card | null) => c !== null).length >= 3);
+  }
+  if (numCardsTargetHandWillHave === 5) {
+    return player.hands.every((h: Hand) => h.cards.filter((c: Card | null) => c !== null).length >= 4);
+  }
+  return true;
+};
+// });
+
+
+pokerIo.on('disconnect', (socket) => {
+  console.log('User disconnected from Brazilian Poker:', socket.id);
+  const queueIndex = matchmakingQueue.findIndex((s: Socket) => s.id === socket.id);
+  if (queueIndex !== -1) {
+    matchmakingQueue.splice(queueIndex, 1);
+    console.log(`Player ${socket.id} removed from Brazilian Poker matchmaking queue.`);
+  }
+
+  for (const [roomId, room] of rooms.entries()) {
+    const playerInRoom = room.players.find((p: RoomPlayerInfo) => p.socketId === socket.id);
+    if (playerInRoom) {
+      console.log(`[pokerIo disconnect] Player ${socket.id} disconnected from Brazilian Poker room ${roomId}. Rooms before delete: ${Array.from(rooms.keys())}`);
+      clearTurnTimer(room);
+
+      const otherPlayer = room.players.find((p: RoomPlayerInfo) => p.socketId !== socket.id);
+      if (otherPlayer) {
+        pokerIo.to(otherPlayer.socketId).emit('opponentDisconnected', 'Your opponent has disconnected. Game over.');
+      }
+      rooms.delete(roomId);
+      console.log(`[pokerIo disconnect] Brazilian Poker Room ${roomId} closed due to disconnect. Rooms after delete: ${Array.from(rooms.keys())}`);
+      break;
+    }
+  }
+});
+
 setAndSeizeIo.on('connection', (socket) => {
   console.log('A user connected to Set & Seize:', socket.id);
 
-socket.on('findSetAndSeizeMatch', () => {
+  socket.on('findSetAndSeizeMatch', () => {
     console.log(`Player ${socket.id} is looking for a Set & Seize match.`);
 
     // Proactively clean up player's old sessions for Set & Seize
@@ -950,7 +1127,6 @@ socket.on('findSetAndSeizeMatch', () => {
     if (currentPlayerState) {
       // For now, we don't need to store this on the server's gameState,
       // as the client will send it with snsPlayCard.
-      // This event is more for client-side feedback/validation.
       // However, if we wanted server to enforce selections, we'd store it here.
     }
   });
@@ -965,192 +1141,8 @@ socket.on('findSetAndSeizeMatch', () => {
     // Similar to middle card selection, this is primarily for client-side state.
     // The actual card played will be sent with snsPlayCard.
   });
-const calculateSetAndSeizeScores = (room: SnsGameRoom) => {
-console.log(`Calculating Set & Seize scores for game ${room.id}`);
-const calculatePlayerPoints = (collectedCards: SnsCard[]): number => {
-  let points = 0;
-  collectedCards.forEach(card => {
-    if (card.rank === 'A') {
-      points += 1;
-    }
-    if (card.rank === '2' && card.suit === 'S') {
-      points += 1;
-    }
-    if (card.rank === 'T' && card.suit === 'D') {
-      points += 2;
-    }
-  });
-  return points;
-};
-
-const player1State = room.snsGameState.players[0];
-const player2State = room.snsGameState.players[1];
-
-let player1Score = calculatePlayerPoints(player1State.collectedCards);
-let player2Score = calculatePlayerPoints(player2State.collectedCards);
-
-const player1Spades = player1State.collectedCards.filter(card => card.suit === 'S').length;
-const player2Spades = player2State.collectedCards.filter(card => card.suit === 'S').length;
-
-if (player1Spades > player2Spades) {
-  player1Score += 1;
-} else if (player2Spades > player1Spades) {
-  player2Score += 1;
-}
-
-const player1TotalCards = player1State.collectedCards.length;
-const player2TotalCards = player2State.collectedCards.length;
-
-if (player1TotalCards > player2TotalCards) {
-  player1Score += 3;
-} else if (player2TotalCards > player1TotalCards) {
-  player2Score += 3;
-}
-
-let winner: 'player' | 'ai' | 'draw' | null = null;
-if (player1Score > player2Score) {
-  winner = 'player';
-} else if (player2Score > player1Score) {
-  winner = 'ai';
-} else {
-  winner = 'draw';
-}
-
-room.snsGameState.gameResult = {
-  winner,
-  playerScore: player1Score,
-  aiScore: player2Score,
-};
-
-console.log(`Set & Seize Game Over! Player 1 Score: ${player1Score}, Player 2 Score: ${player2Score}. Winner: ${winner}`);
-};
-
-const handleGameEvaluation = (room: GameRoom) => {
-clearTurnTimer(room);
-console.log(`Evaluating game ${room.id}`);
-const playersWithRevealedCards = room.gameState.players.map((player: Player) => ({
-    ...player,
-    hands: player.hands.map((hand: Hand) => ({
-      ...hand,
-      cards: hand.cards.map((card: Card | null) => card ? { ...card, hidden: false } : null)
-    }))
-  }));
-
-  const handEvalResults: { p1Wins: number; p2Wins: number; individualWinners: (string | null)[] } = {
-    p1Wins: 0,
-    p2Wins: 0,
-    individualWinners: Array(5).fill(null),
-  };
-
-  type PlayerWithEvaluatedHands = Player & { hands: (Hand & { evaluation?: EvaluatedHand | null })[] };
-
-  const finalPlayerStates: PlayerWithEvaluatedHands[] = playersWithRevealedCards.map((p: Player): PlayerWithEvaluatedHands => ({
-      ...p,
-      hands: p.hands.map((h: Hand) => ({...h, evaluation: evaluateHand(h.cards)}))
-  }));
-
-
-  for (let i = 0; i < 5; i++) {
-    const evalP1 = finalPlayerStates[0].hands[i].evaluation;
-    const evalP2 = finalPlayerStates[1].hands[i].evaluation;
-
-    if (evalP1 && evalP2) {
-      const comparison = compareEvaluatedHands(evalP1, evalP2);
-      if (comparison > 0) {
-        handEvalResults.p1Wins++;
-        handEvalResults.individualWinners[i] = finalPlayerStates[0].id;
-      } else if (comparison < 0) {
-        handEvalResults.p2Wins++;
-        handEvalResults.individualWinners[i] = finalPlayerStates[1].id;
-      } else {
-        handEvalResults.individualWinners[i] = 'Tie';
-      }
-    } else if (evalP1) { handEvalResults.p1Wins++; handEvalResults.individualWinners[i] = finalPlayerStates[0].id;}
-      else if (evalP2) { handEvalResults.p2Wins++; handEvalResults.individualWinners[i] = finalPlayerStates[1].id;}
-  }
-
-  let overallWinnerMsg = "Game Over! ";
-  if (handEvalResults.p1Wins > handEvalResults.p2Wins) {
-    overallWinnerMsg += `${finalPlayerStates[0].id} wins the game (${handEvalResults.p1Wins} to ${handEvalResults.p2Wins})!`;
-  } else if (handEvalResults.p2Wins > handEvalResults.p1Wins) {
-    overallWinnerMsg += `${finalPlayerStates[1].id} wins the game (${handEvalResults.p2Wins} to ${handEvalResults.p1Wins})!`;
-  } else {
-    overallWinnerMsg += `It's a tie overall! (${handEvalResults.p1Wins} to ${handEvalResults.p2Wins})`;
-  }
-
-  room.gameState.players = finalPlayerStates;
-  room.gameState.gamePhase = 'gameOver';
-  room.gameState.winnerMessage = overallWinnerMsg;
-  room.gameState.individualHandWinners = handEvalResults.individualWinners;
-  
-  pokerIo.to(room.id).emit('gameStateUpdate', room.gameState);
-  console.log(`Game ${room.id} ended. Winner: ${overallWinnerMsg}.`);
-
-  setTimeout(() => {
-    if (rooms.has(room.id)) {
-        rooms.delete(room.id);
-        console.log(`[handleGameEvaluation] Room ${room.id} closed after game over.`);
-    } else {
-        console.log(`[handleGameEvaluation] Room ${room.id} already deleted, no action needed.`);
-    }
-  }, 5000);
-};
-
-const canPlaceCardInHandServer = (player: Player, handIndex: number, targetSlot: number): boolean => {
-if (targetSlot < 0 || targetSlot > 4) return false;
-const cardCounts = player.hands.map((h: Hand) => h.cards.filter((c: Card | null) => c !== null).length);
-const cardsInTargetHandCurrently = cardCounts[handIndex];
-
-if (cardsInTargetHandCurrently !== targetSlot) {
-  console.error(`Server validation: Mismatch between targetSlot (${targetSlot}) and actual empty slot count (${cardsInTargetHandCurrently}) in hand ${handIndex} for player ${player.id}.`);
-  return false;
-}
-const numCardsTargetHandWillHave = cardsInTargetHandCurrently + 1;
-
-if (numCardsTargetHandWillHave === 3) {
-  return player.hands.every((h: Hand) => h.cards.filter((c: Card | null) => c !== null).length >= 2);
-}
-if (numCardsTargetHandWillHave === 4) {
-  return player.hands.every((h: Hand) => h.cards.filter((c: Card | null) => c !== null).length >= 3);
-}
-if (numCardsTargetHandWillHave === 5) {
-  return player.hands.every((h: Hand) => h.cards.filter((c: Card | null) => c !== null).length >= 4);
-}
-return true;
-};
-  // });
-
-
-pokerIo.on('disconnect', (socket) => {
-  console.log('User disconnected from Brazilian Poker:', socket.id);
-  const queueIndex = matchmakingQueue.findIndex((s: Socket) => s.id === socket.id);
-  if (queueIndex !== -1) {
-    matchmakingQueue.splice(queueIndex, 1);
-    console.log(`Player ${socket.id} removed from Brazilian Poker matchmaking queue.`);
-  }
-
-  for (const [roomId, room] of rooms.entries()) {
-    const playerInRoom = room.players.find((p: RoomPlayerInfo) => p.socketId === socket.id);
-    if (playerInRoom) {
-      console.log(`[pokerIo disconnect] Player ${socket.id} disconnected from Brazilian Poker room ${roomId}. Rooms before delete: ${Array.from(rooms.keys())}`);
-      clearTurnTimer(room);
-      
-      const otherPlayer = room.players.find((p: RoomPlayerInfo) => p.socketId !== socket.id);
-      if (otherPlayer) {
-        pokerIo.to(otherPlayer.socketId).emit('opponentDisconnected', 'Your opponent has disconnected. Game over.');
-      }
-      rooms.delete(roomId);
-      console.log(`[pokerIo disconnect] Brazilian Poker Room ${roomId} closed due to disconnect. Rooms after delete: ${Array.from(rooms.keys())}`);
-      break;
-    }
-  }
 });
- 
-setAndSeizeIo.on('connection', (socket) => {
-  console.log('A user connected to Set & Seize:', socket.id);
-  // ... (rest of the Set & Seize connection handlers)
-});
- 
+
 setAndSeizeIo.on('disconnect', (socket) => {
   console.log(`[setAndSeizeIo disconnect] User disconnected from Set & Seize: ${socket.id}. snsRooms before cleanup: ${Array.from(snsRooms.keys())}`);
   const snsQueueIndex = matchmakingQueueSns.findIndex((s: Socket) => s.id === socket.id);
@@ -1164,7 +1156,7 @@ setAndSeizeIo.on('disconnect', (socket) => {
     if (playerInRoom) {
       console.log(`[setAndSeizeIo disconnect] Player ${socket.id} disconnected from Set & Seize room ${roomId}.`);
       clearSnsTurnTimer(room);
-      
+
       const otherPlayer = room.players.find((p: RoomPlayerInfo) => p.socketId !== socket.id);
       if (otherPlayer) {
         setAndSeizeIo.to(otherPlayer.socketId).emit('snsOpponentDisconnected', 'Your opponent has disconnected. Game over.');
@@ -1175,12 +1167,11 @@ setAndSeizeIo.on('disconnect', (socket) => {
     }
   }
 });
-});
- 
+
 setAndSeizeServer.listen(SNS_PORT, () => {
   console.log(`Set & Seize Server listening on port ${SNS_PORT}`);
 });
- 
+
 pokerServer.listen(POKER_PORT, () => {
   console.log(`Brazilian Poker Server listening on port ${POKER_PORT}`);
 });
