@@ -6,7 +6,7 @@ import { evaluateHand, compareEvaluatedHands } from '../lib/pokerEvaluator';
 import io, { Socket } from 'socket.io-client';
 
 // For local development, use localhost. For production, connect to the same origin.
-const SERVER_URL = process.env.NODE_ENV === 'production' ? window.location.origin : 'http://192.168.1.56:3000';
+const POKER_SERVER_URL = process.env.NODE_ENV === 'production' ? window.location.origin : import.meta.env.VITE_POKER_SERVER_URL || 'http://localhost:3000';
 
 // Helper function for AI strategic evaluation
 const calculateHandPotential = (
@@ -199,7 +199,7 @@ const useGameLogic = ({ isOnlineMultiplayer = false, onGoHome }: UseGameLogicPro
   // Initialize socket connection for online multiplayer
   useEffect(() => {
     if (isOnlineMultiplayer) {
-      const newSocket = io(SERVER_URL);
+      const newSocket = io(POKER_SERVER_URL);
       setSocket(newSocket);
 
       newSocket.on('connect', () => {

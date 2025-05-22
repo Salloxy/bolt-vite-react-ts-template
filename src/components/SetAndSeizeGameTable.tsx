@@ -16,29 +16,66 @@ const SetAndSeizeGameTable: React.FC<SetAndSeizeGameTableProps> = ({
   onRestartGame,
 }) => {
   const {
-    playerHand,
-    aiHand, // For display purposes, though AI hand is hidden
+    clientPlayerId, // Destructure the new clientPlayerId
+    gameId,
+    players,
+    currentPlayerId,
     middleCards,
-    playerCollected,
-    aiCollected,
-    currentPlayer,
-    playerMustCapture, // Destructure player's mustCapture state
-    aiMustCapture,     // Destructure AI's mustCapture state
-    selectedMiddleCards, // Destructure new state
-    setSelectedMiddleCards, // Destructure the setter for selectedMiddleCards
-    resetGame,           // Destructure resetGame function
+    deckSize,
+    lastCapturePlayerId,
+    gameEnded,
+    gameResult,
+    gamePhase,
+    isGameInitialized,
+    playerMustCapture,
+    playerLastBuildValue,
+    playerJustMadeBuild,
+    selectedMiddleCards,
+    setSelectedMiddleCards,
+    selectedPlayerCard,
+    setSelectedPlayerCard,
+    turnTimerEndsAt,
+    messages,
+    errors,
+    initializeGame,
+    resetGame,
     playCard,
-    toggleMiddleCardSelection, // Destructure new function
-    hasPlayedCardThisTurn,
-    checkValidCapture, // Destructure checkValidCapture
-    checkValidSoftBuild, // Destructure checkValidBuild
-    checkValidHardBuild, // Destructure checkValidHardBuild
-    selectedPlayerCard, // Destructure selectedPlayerCard from the hook
-    setSelectedPlayerCard, // Destructure the setter for selectedPlayerCard
-    deckSize, // Expose deck size
-    gameEnded,           // Expose gameEnded state
-    gameResult,          // Expose gameResult
+    toggleMiddleCardSelection,
+    checkValidCapture,
+    checkValidSoftBuild,
+    checkValidHardBuild,
+    cancelMatchmaking, // Destructure cancelMatchmaking
   } = useSetAndSeizeGameLogic({ isOnline });
+
+  // Correctly identify self and opponent in online mode using clientPlayerId
+  const selfId = isOnline ? clientPlayerId : 'player';
+  const playerSelf = players.find(p => p.id === selfId);
+  const playerOpponent = isOnline ? players.find(p => p.id !== selfId) : players.find(p => p.id === 'ai');
+
+  const playerHand = playerSelf?.hand || [];
+  const playerCollected = playerSelf?.collectedCards || [];
+  const aiHand = playerOpponent?.hand || []; // For display purposes, though AI hand is hidden
+  const aiCollected = playerOpponent?.collectedCards || [];
+  const currentPlayer = currentPlayerId === selfId ? 'player' : 'ai'; // 'player' for self, 'ai' for opponent/AI
+  const aiMustCapture = playerOpponent?.mustCapture || false;
+  const hasPlayedCardThisTurn = false; // This is now managed server-side for online play, or not directly used for AI offline.
+
+  const [turnTimeLeft, setTurnTimeLeft] = React.useState<number | null>(null);
+
+  React.useEffect(() => {
+    if (isOnline && turnTimerEndsAt && gamePhase === 'playing') {
+      const interval = setInterval(() => {
+        const timeLeft = Math.max(0, Math.ceil((turnTimerEndsAt - Date.now()) / 1000));
+        setTurnTimeLeft(timeLeft);
+        if (timeLeft === 0) {
+          clearInterval(interval);
+        }
+      }, 1000);
+      return () => clearInterval(interval);
+    } else {
+      setTurnTimeLeft(null);
+    }
+  }, [isOnline, turnTimerEndsAt, gamePhase]);
 
   const [captureMode, setCaptureMode] = React.useState<boolean>(false); // New state for capture mode
   const [showBuildOptions, setShowBuildOptions] = React.useState<boolean>(false); // New state for build options
@@ -52,7 +89,7 @@ const SetAndSeizeGameTable: React.FC<SetAndSeizeGameTableProps> = ({
     const hardBuildGroups: { [groupId: string]: SnsBuild[] } = {};
     const processedBuildIds = new Set<string>();
 
-    middleCards.forEach(item => {
+    middleCards.forEach((item: SnsCard | SnsBuild) => {
       if ('isHard' in item && item.isHard && item.hardBuildGroupId) {
         if (!processedBuildIds.has(item.id)) {
           if (!hardBuildGroups[item.hardBuildGroupId]) {
@@ -138,16 +175,37 @@ const SetAndSeizeGameTable: React.FC<SetAndSeizeGameTableProps> = ({
     >
       <Menu onGoHome={onGoHome} onRestartGame={onRestartGame} />
 
+{isOnline && gamePhase === 'loading' && !isGameInitialized && (
+        <div className="absolute inset-0 bg-black bg-opacity-75 flex flex-col items-center justify-center text-white text-center p-4 z-50">
+          <h2 className="text-4xl font-bold mb-4">Finding Match...</h2>
+          {messages.map((msg, idx) => <p key={`msg-${idx}`} className="text-lg">{msg}</p>)}
+          {errors.map((err, idx) => <p key={`err-${idx}`} className="text-red-500 text-lg">{err}</p>)}
+          <p className="text-xl mt-4">Please wait for another player to join.</p>
+          <button
+            onClick={() => {
+              cancelMatchmaking();
+              onGoHome(); // Go back to home screen after cancelling
+            }}
+            className="mt-8 bg-gray-700 hover:bg-gray-800 text-white font-semibold py-2 px-4 rounded-lg text-sm shadow-md transition duration-150 ease-in-out"
+          >
+            Cancel Search
+          </button>
+        </div>
+      )}
+
+      {/* Main game content - only render if not in loading phase for online games, or if offline */}
+      {(!isOnline || (isOnline && gamePhase !== 'loading' && isGameInitialized)) && (
+        <>
       {/* Top Area: AI Hand (hidden) and AI Collected */}
       <div className="w-full player-area opponent-area my-1">
-        <h3 className="text-xl font-semibold mb-2 text-center">AI Hand</h3>
+        <h3 className="text-xl font-semibold mb-2 text-center">{isOnline ? 'Opponent Hand' : 'AI Hand'}</h3>
         <div className="flex justify-center space-x-1">
-          {aiHand.map((card, index) => (
+          {aiHand.map((card: SnsCard, index: number) => (
             <CardDisplay key={index} card={card} isHidden={true} isHandCard={true} />
           ))}
         </div>
         <div className="flex flex-col items-center mt-2">
-          <h3 className="text-xl font-semibold mb-2">AI Collected ({aiCollected.length} cards)</h3>
+          <h3 className="text-xl font-semibold mb-2">{isOnline ? 'Opponent Collected' : 'AI Collected'} ({aiCollected.length} cards)</h3>
           <div className="flex flex-wrap justify-center">
             {/* Removed display of collected AI cards */}
           </div>
@@ -169,7 +227,7 @@ const SetAndSeizeGameTable: React.FC<SetAndSeizeGameTableProps> = ({
                       <button
                         key={build.id}
                         onClick={() => (captureMode || (buildMode && selectedTargetCard)) && toggleMiddleCardSelection(build)}
-                        className={`hover:scale-105 transition-transform ${selectedMiddleCards.some(c => c.id === build.id) ? 'border-4 border-blue-500' : ''}`}
+                        className={`hover:scale-105 transition-transform ${selectedMiddleCards.some((c: SnsCard | SnsBuild) => c.id === build.id) ? 'border-4 border-blue-500' : ''}`}
                         disabled={!(captureMode || (buildMode && selectedTargetCard))}
                       >
                         <div className="flex flex-col items-center relative" style={{ height: '150px', width: '100px' }}>
@@ -200,7 +258,7 @@ const SetAndSeizeGameTable: React.FC<SetAndSeizeGameTableProps> = ({
                   <button
                     key={singleItem.id}
                     onClick={() => (captureMode || (buildMode && selectedTargetCard)) && toggleMiddleCardSelection(singleItem)}
-                    className={`hover:scale-105 transition-transform ${selectedMiddleCards.some(c => c.id === singleItem.id) ? 'border-4 border-blue-500' : ''}`}
+                    className={`hover:scale-105 transition-transform ${selectedMiddleCards.some((c: SnsCard | SnsBuild) => c.id === singleItem.id) ? 'border-4 border-blue-500' : ''}`}
                     disabled={!(captureMode || (buildMode && selectedTargetCard))}
                   >
                     {'cards' in singleItem ? ( // It's an SnsBuild (soft build)
@@ -234,9 +292,13 @@ const SetAndSeizeGameTable: React.FC<SetAndSeizeGameTableProps> = ({
           )}
         </div>
         <p className="text-lg mt-2">Cards in Deck: {deckSize}</p> {/* Display deck size */}
-        <p className="text-lg mt-2">Current Player: {currentPlayer === 'player' ? 'You' : 'AI'}</p>
-        {currentPlayer === 'player' && playerMustCapture && <p className="text-red-400 font-bold">MUST CAPTURE!</p>}
-        {currentPlayer === 'ai' && aiMustCapture && <p className="text-red-400 font-bold">MUST CAPTURE!</p>}
+        <p className="text-lg mt-2">Current Player: {currentPlayerId === selfId ? 'You' : (isOnline ? 'Opponent' : 'AI')}</p>
+        {isOnline && turnTimeLeft !== null && (
+          <p className="text-lg mt-1">Time Left: {turnTimeLeft}s</p>
+        )}
+        {playerSelf && currentPlayerId === playerSelf.id && playerMustCapture && <p className="text-red-400 font-bold">MUST CAPTURE!</p>}
+        {playerOpponent && currentPlayerId === playerOpponent.id && aiMustCapture && <p className="text-red-400 font-bold">MUST CAPTURE!</p>}
+        {/* The loading overlay is already handled by the logic at line 157 */}
 
         {/* Action Buttons */}
         {selectedPlayerCard && !captureMode && !buildMode && !showBuildOptions && ( // Initial options: Drop, Capture, Build, Cancel
@@ -244,21 +306,21 @@ const SetAndSeizeGameTable: React.FC<SetAndSeizeGameTableProps> = ({
             <button
               onClick={handleDrop}
               className="px-4 py-2 bg-green-600 rounded hover:bg-green-700 disabled:opacity-50"
-              disabled={currentPlayer !== 'player' || hasPlayedCardThisTurn}
+              disabled={currentPlayerId !== selfId}
             >
               Drop
             </button>
             <button
               onClick={handleInitiateCapture}
               className="px-4 py-2 bg-blue-600 rounded hover:bg-blue-700 disabled:opacity-50"
-              disabled={currentPlayer !== 'player' || hasPlayedCardThisTurn}
+              disabled={currentPlayerId !== selfId}
             >
               Capture
             </button>
             <button
               onClick={() => setShowBuildOptions(true)}
               className="px-4 py-2 bg-purple-600 rounded hover:bg-purple-700 disabled:opacity-50"
-              disabled={currentPlayer !== 'player' || hasPlayedCardThisTurn}
+              disabled={currentPlayerId !== selfId}
             >
               Build
             </button>
@@ -276,14 +338,14 @@ const SetAndSeizeGameTable: React.FC<SetAndSeizeGameTableProps> = ({
             <button
               onClick={() => handleCardOptionSelect('soft-build')}
               className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 text-sm"
-              disabled={currentPlayer !== 'player' || hasPlayedCardThisTurn}
+              disabled={currentPlayerId !== selfId}
             >
               Soft Build
             </button>
             <button
               onClick={() => handleCardOptionSelect('hard-build')}
               className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 text-sm"
-              disabled={currentPlayer !== 'player' || hasPlayedCardThisTurn}
+              disabled={currentPlayerId !== selfId}
             >
               Hard Build
             </button>
@@ -322,11 +384,10 @@ const SetAndSeizeGameTable: React.FC<SetAndSeizeGameTableProps> = ({
               }}
               className="px-4 py-2 bg-purple-600 rounded hover:bg-purple-700 disabled:opacity-50"
               disabled={
-                currentPlayer !== 'player' ||
-                hasPlayedCardThisTurn ||
+                currentPlayerId !== selfId ||
                 selectedMiddleCards.length === 0 ||
-                (buildType === 'soft-build' && (!selectedPlayerCard || !selectedTargetCard || !checkValidSoftBuild(selectedPlayerCard, selectedTargetCard, selectedMiddleCards))) || // Use selectedPlayerCard from hook
-                (buildType === 'hard-build' && (!selectedPlayerCard || !selectedTargetCard || !checkValidHardBuild(selectedPlayerCard, selectedTargetCard, selectedMiddleCards))) // Use selectedPlayerCard from hook
+                (buildType === 'soft-build' && (!selectedPlayerCard || !selectedTargetCard || !checkValidSoftBuild(selectedPlayerCard, selectedTargetCard, selectedMiddleCards))) ||
+                (buildType === 'hard-build' && (!selectedPlayerCard || !selectedTargetCard || !checkValidHardBuild(selectedPlayerCard, selectedTargetCard, selectedMiddleCards)))
               }
             >
               Confirm Build
@@ -347,9 +408,8 @@ const SetAndSeizeGameTable: React.FC<SetAndSeizeGameTableProps> = ({
               onClick={handleConfirmCapture}
               className="px-4 py-2 bg-blue-600 rounded hover:bg-blue-700 disabled:opacity-50"
               disabled={
-                currentPlayer !== 'player' ||
-                hasPlayedCardThisTurn ||
-                !checkValidCapture(selectedPlayerCard, selectedMiddleCards) // Use selectedPlayerCard from hook
+                currentPlayerId !== selfId ||
+                !checkValidCapture(selectedPlayerCard, selectedMiddleCards)
               }
             >
               Confirm Capture
@@ -369,12 +429,12 @@ const SetAndSeizeGameTable: React.FC<SetAndSeizeGameTableProps> = ({
         <h3 className="text-xl font-semibold mb-2 text-center">Your Hand</h3>
         <div className="flex justify-center space-x-1">
           {playerHand.length > 0 ? (
-            playerHand.map((card, index) => (
+            playerHand.map((card: SnsCard, index: number) => (
                 <button
                   key={index}
                   onClick={() => handleHandCardClick(card)}
                   className={`hover:scale-105 transition-transform ${selectedPlayerCard?.id === card.id ? 'border-4 border-yellow-500' : ''}`}
-                  disabled={currentPlayer !== 'player' || hasPlayedCardThisTurn}
+                  disabled={currentPlayerId !== selfId}
                 >
                   <CardDisplay card={card} isHandCard={true} />
                 </button>
@@ -393,19 +453,33 @@ const SetAndSeizeGameTable: React.FC<SetAndSeizeGameTableProps> = ({
 
       {gameEnded && gameResult && (
         <div className="absolute inset-0 bg-black bg-opacity-75 flex flex-col items-center justify-center text-white text-center p-4">
-          <h2 className="text-4xl font-bold mb-4">Game Over!</h2>
-          <p className="text-2xl mb-2">Player Score: {gameResult.playerScore}</p>
-          <p className="text-2xl mb-4">AI Score: {gameResult.aiScore}</p>
-          <h3 className="text-3xl font-bold text-yellow-400">
-            {gameResult.winner === 'player' ? 'You Win!' : gameResult.winner === 'ai' ? 'AI Wins!' : 'It\'s a Draw!'}
-          </h3>
+          {gameResult?.winner === 'player' && <h2 className="text-4xl font-bold mb-4">YOU WIN!</h2>}
+          {gameResult?.winner === 'ai' && <h2 className="text-4xl font-bold mb-4">OPPONENT WINS!</h2>}
+          {gameResult?.winner === 'draw' && <h2 className="text-4xl font-bold mb-4">IT'S A DRAW!</h2>}
+          {gameResult?.winner === null && messages.length > 0 && <h2 className="text-4xl font-bold mb-4">{messages[messages.length - 1]}</h2>}
+          {gameResult && gameResult.winner !== null && (
+            <>
+              <p className="text-2xl mb-2">Your Score: {gameResult.playerScore}</p>
+              <p className="text-2xl mb-4">Opponent Score: {gameResult.aiScore}</p>
+            </>
+          )}
+          {messages.map((msg, idx) => <p key={`msg-${idx}`} className="text-lg">{msg}</p>)}
+          {errors.map((err, idx) => <p key={`err-${idx}`} className="text-red-500 text-lg">{err}</p>)}
           <button
             onClick={resetGame}
-            className="mt-6 px-6 py-3 bg-blue-600 rounded-lg text-xl font-semibold hover:bg-blue-700 transition-colors"
+            className="mt-6 px-6 py-3 bg-yellow-500 hover:bg-yellow-600 text-black font-bold py-2 px-4 rounded-xl shadow-lg border-2 border-yellow-700 hover:border-yellow-800 transition duration-150 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-yellow-400 focus:ring-opacity-50"
           >
             Play Again
           </button>
+          <button
+            onClick={onGoHome}
+            className="mt-4 bg-gray-700 hover:bg-gray-800 text-white font-semibold py-2 px-4 rounded-lg text-sm shadow-md transition duration-150 ease-in-out"
+          >
+            Back to Menu
+          </button>
         </div>
+      )}
+        </>
       )}
     </div>
   );

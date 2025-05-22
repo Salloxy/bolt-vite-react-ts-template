@@ -1,7 +1,8 @@
 // DEBUG: Attempting write at 2025-05-21 22:16:45
-import { useState, useEffect, useCallback } from 'react';
-import { SnsCard, SnsSuit, SnsRank, SnsBuild } from '../types';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { SnsCard, SnsSuit, SnsRank, SnsBuild, SnsGameState, SnsPlayerState } from '../types';
 import { getRankValue } from '../lib/utils'; // Import getRankValue
+import io, { Socket } from 'socket.io-client';
 
 // Helper to get all possible numeric values for a card (e.g., Ace can be 1 or 14)
 // This is specifically for capture logic where multiple sums are possible.
@@ -241,264 +242,263 @@ const useSetAndSeizeGameLogic = ({ isOnline }: UseSetAndSeizeGameLogicProps) => 
     return items.flatMap(item => 'cards' in item ? item.cards : item);
   }, []);
 
-  const [deck, setDeck] = useState<SnsCard[]>([]);
-  const [playerHand, setPlayerHand] = useState<SnsCard[]>([]);
-  const [aiHand, setAiHand] = useState<SnsCard[]>([]);
+  const socketRef = useRef<Socket | null>(null);
+  const [gameId, setGameId] = useState<string | null>(null);
+  const [players, setPlayers] = useState<SnsPlayerState[]>([]);
+  const [currentPlayerId, setCurrentPlayerId] = useState<string | null>(null);
   const [middleCards, setMiddleCards] = useState<(SnsCard | SnsBuild)[]>([]);
-  const [playerCollected, setPlayerCollected] = useState<SnsCard[]>([]);
-  const [aiCollected, setAiCollected] = useState<SnsCard[]>([]);
-  const [currentPlayer, setCurrentPlayer] = useState<'player' | 'ai'>('player');
-  const [playerMustCapture, setPlayerMustCapture] = useState(false);
-  const [aiMustCapture, setAiMustCapture] = useState(false);
-  const [playerLastBuildValue, setPlayerLastBuildValue] = useState<number | null>(null);
-  const [aiLastBuildValue, setAiLastBuildValue] = useState<number | null>(null);
-  const [lastCapturePlayerId, setLastCapturePlayerId] = useState<'player' | 'ai' | null>(null);
-  const [hasPlayedCardThisTurn, setHasPlayedCardThisTurn] = useState(false);
-  const [selectedMiddleCards, setSelectedMiddleCards] = useState<(SnsCard | SnsBuild)[]>([]);
-  const [selectedPlayerCard, setSelectedPlayerCard] = useState<SnsCard | null>(null); // New state for selected player card
-  const [playerJustMadeBuild, setPlayerJustMadeBuild] = useState(false);
-  const [aiJustMadeBuild, setAiJustMadeBuild] = useState(false);
-  const [gameEnded, setGameEnded] = useState(false); // New state to track game end
+  const [deckSize, setDeckSize] = useState<number>(0);
+  const [lastCapturePlayerId, setLastCapturePlayerId] = useState<string | null>(null);
+  const [gameEnded, setGameEnded] = useState(false);
   const [gameResult, setGameResult] = useState<{ winner: 'player' | 'ai' | 'draw' | null; playerScore: number; aiScore: number } | null>(null);
-  const [gamePhase, setGamePhase] = useState<'loading' | 'playing' | 'gameOver'>('loading'); // New state for game phase
-  const [isGameInitialized, setIsGameInitialized] = useState(false); // New state to track if game is fully initialized
+  const [gamePhase, setGamePhase] = useState<'loading' | 'playing' | 'gameOver'>('loading');
+  const [isGameInitialized, setIsGameInitialized] = useState(false);
+  const [playerMustCapture, setPlayerMustCapture] = useState(false);
+  const [playerLastBuildValue, setPlayerLastBuildValue] = useState<number | null>(null);
+  const [playerJustMadeBuild, setPlayerJustMadeBuild] = useState(false);
+  const [selectedMiddleCards, setSelectedMiddleCards] = useState<(SnsCard | SnsBuild)[]>([]);
+  const [selectedPlayerCard, setSelectedPlayerCard] = useState<SnsCard | null>(null);
+  const [turnTimerEndsAt, setTurnTimerEndsAt] = useState<number | undefined>(undefined);
+  const [messages, setMessages] = useState<string[]>([]);
+  const [errors, setErrors] = useState<string[]>([]);
 
   const toggleMiddleCardSelection = useCallback((item: SnsCard | SnsBuild) => {
     setSelectedMiddleCards(prev => {
-      // If the clicked item is a hard build
-      if ('isHard' in item && item.isHard && item.hardBuildGroupId) {
-        const groupMembers = middleCards.filter(
-          (mItem): mItem is SnsBuild =>
-            'isHard' in mItem && mItem.isHard && mItem.hardBuildGroupId === item.hardBuildGroupId
-        );
-        const isGroupCurrentlySelected = groupMembers.every(member =>
-          prev.some(pItem => pItem.id === member.id)
-        );
-        if (isGroupCurrentlySelected) {
-          // If the entire group is selected, deselect all members of the group
-          return prev.filter(pItem => !groupMembers.some(member => member.id === pItem.id));
-        } else {
-          // If the group is not fully selected, select all members of the group
-          const newSelection = new Set(prev.map(c => c.id));
-          groupMembers.forEach(member => newSelection.add(member.id));
-          
-          // Reconstruct the array from middleCards to maintain order and original objects
-          return middleCards.filter(mItem => newSelection.has(mItem.id));
-        }
-      } else {
-        // Normal card or soft build selection
-        return prev.some(c => c.id === item.id)
-          ? prev.filter(c => c.id !== item.id)
-          : [...prev, item];
+      const newSelection = prev.some(c => c.id === item.id)
+        ? prev.filter(c => c.id !== item.id)
+        : [...prev, item];
+
+      if (isOnline && socketRef.current && gameId) {
+        socketRef.current.emit('snsSelectMiddleCard', { gameId, playerId: socketRef.current.id, selectedItems: newSelection });
       }
+      return newSelection;
     });
-  }, [middleCards]); // middleCards is a dependency now
-
-  const dealNewHands = useCallback((currentDeck: SnsCard[]) => {
-    const newDeck = shuffleDeck(currentDeck); // Shuffle remaining deck
-    const newPlayerHand: SnsCard[] = [];
-    const newAiHand: SnsCard[] = [];
-
-    // Deal 4 new cards to each player
-    for (let i = 0; i < 4; i++) {
-      if (newDeck.length > 0) newPlayerHand.push(newDeck.pop()!);
-      if (newDeck.length > 0) newAiHand.push(newDeck.pop()!);
-    }
-
-    setDeck(newDeck);
-    setPlayerHand(newPlayerHand);
-    setAiHand(newAiHand);
-    // Do not add cards to the middle for new hands
-  }, []);
+  }, [isOnline, gameId]); // middleCards is no longer a direct dependency, but isOnline and gameId are.
 
   const initializeGame = useCallback(() => {
-    console.log('initializeGame called!'); // Debugging log
-    const newDeck = shuffleDeck(createDeck());
-    const initialPlayerHand: SnsCard[] = [];
-    const initialAiHand: SnsCard[] = [];
-    const initialMiddleCards: SnsCard[] = [];
+    if (isOnline) {
+      console.log('Online game: Initializing via server matchmaking.');
+      setGamePhase('loading');
+      setMessages(prev => [...prev, 'Looking for an opponent...']);
+      if (socketRef.current) {
+        socketRef.current.emit('findSetAndSeizeMatch');
+      }
+    } else {
+      console.log('Offline game: Initializing locally.');
+      const newDeck = shuffleDeck(createDeck());
+      const initialPlayerHand: SnsCard[] = [];
+      const initialAiHand: SnsCard[] = [];
+      const initialMiddleCards: (SnsCard | SnsBuild)[] = [];
 
-    // Deal 4 cards face-down to each player
-    for (let i = 0; i < 4; i++) {
-      initialPlayerHand.push(newDeck.pop()!);
-      initialAiHand.push(newDeck.pop()!);
+      for (let i = 0; i < 4; i++) {
+        if (newDeck.length > 0) initialPlayerHand.push(newDeck.pop()!);
+        if (newDeck.length > 0) initialAiHand.push(newDeck.pop()!);
+      }
+
+      for (let i = 0; i < 4; i++) {
+        if (newDeck.length > 0) initialMiddleCards.push(newDeck.pop()!);
+      }
+
+      setPlayers([
+        { id: 'player', hand: initialPlayerHand, collectedCards: [], mustCapture: false, lastBuildValue: null, justMadeBuild: false },
+        { id: 'ai', hand: initialAiHand, collectedCards: [], mustCapture: false, lastBuildValue: null, justMadeBuild: false }
+      ]);
+      setMiddleCards(initialMiddleCards);
+      setDeckSize(newDeck.length);
+      setCurrentPlayerId('player');
+      setLastCapturePlayerId(null);
+      setGameEnded(false);
+      setGameResult(null);
+      setGamePhase('playing');
+      setIsGameInitialized(true);
+      setSelectedMiddleCards([]);
+      setSelectedPlayerCard(null);
+      setPlayerMustCapture(false);
+      setPlayerLastBuildValue(null);
+      setPlayerJustMadeBuild(false);
     }
-
-    // Deal 4 cards face-up to the middle
-    for (let i = 0; i < 4; i++) {
-      initialMiddleCards.push(newDeck.pop() as SnsCard); // Cast to SnsCard
-    }
-
-    setDeck(newDeck);
-    setPlayerHand(initialPlayerHand);
-    setAiHand(initialAiHand);
-    console.log(`initializeGame: Player hand size: ${initialPlayerHand.length}, AI hand size: ${initialAiHand.length}`); // New debug log
-    setMiddleCards(initialMiddleCards as (SnsCard | SnsBuild)[]); // Cast to the correct type
-    setPlayerCollected([]);
-    setAiCollected([]);
-    setCurrentPlayer('player');
-    setPlayerMustCapture(false); // Reset player's mustCapture
-    setAiMustCapture(false);     // Reset AI's mustCapture
-    setPlayerLastBuildValue(null); // Reset player's lastBuildValue
-    setAiLastBuildValue(null);     // Reset AI's lastBuildValue
-    setLastCapturePlayerId(null);
-    setHasPlayedCardThisTurn(false);
-    setGameEnded(false); // Ensure game is not ended
-    setGameResult(null); // Clear game result
-    setGamePhase('playing'); // Set phase to playing after initialization
-    setIsGameInitialized(true); // Mark game as initialized after all setup
-  }, []);
+  }, [isOnline]);
 
   const resetGame = useCallback(() => {
-    setGameEnded(false); // Explicitly reset gameEnded first
-    setGameResult(null); // Explicitly clear gameResult first
-    setGamePhase('loading'); // Reset phase to loading
-    setIsGameInitialized(false); // Mark game as not initialized
+    setGameEnded(false);
+    setGameResult(null);
+    setGamePhase('loading');
+    setIsGameInitialized(false);
+    setSelectedMiddleCards([]);
+    setSelectedPlayerCard(null);
+    setMessages([]);
+    setErrors([]);
+    if (socketRef.current) {
+      socketRef.current.disconnect();
+      socketRef.current = null;
+    }
     initializeGame();
-  }, [initializeGame, setGameEnded, setGameResult]); // Add setGameEnded and setGameResult to dependencies
+  }, [initializeGame, isOnline]);
+
+  const cancelMatchmaking = useCallback(() => {
+    if (isOnline && socketRef.current && socketRef.current.connected) {
+      console.log('Cancelling Set & Seize matchmaking...');
+      socketRef.current.emit('cancelSetAndSeizeMatchmaking');
+      setMessages(prev => [...prev, 'Matchmaking cancelled.']);
+      setGamePhase('loading'); // Go back to loading state
+      setIsGameInitialized(false); // Reset initialization state
+      setErrors([]); // Clear any errors
+    }
+  }, [isOnline]);
 
   useEffect(() => {
-    initializeGame();
-  }, [initializeGame]);
+    if (isOnline && !socketRef.current) {
+      const socket = io(import.meta.env.VITE_SNS_SERVER_URL || 'http://localhost:3001');
+      socketRef.current = socket;
 
-  const endTurn = useCallback(() => {
-    setCurrentPlayer(prev => {
-      // Check if the previous player (who just finished their turn) had just made a build
-      // The playerJustMadeBuild flag indicates if the player *just* made a build on this turn.
-      // If they did NOT make a build this turn, and they were previously under the mustCapture rule,
-      // then the mustCapture rule ends.
-      if (prev === 'player') {
-        if (!playerJustMadeBuild && playerMustCapture) { // If no build was made this turn, and mustCapture was active
-          setPlayerMustCapture(false);
-          setPlayerLastBuildValue(null);
-        }
-        setPlayerJustMadeBuild(false); // Reset for the next turn
-      } else if (prev === 'ai') {
-        if (!aiJustMadeBuild && aiMustCapture) { // If no build was made this turn, and mustCapture was active
-          setAiMustCapture(false);
-          setAiLastBuildValue(null);
-        }
-        setAiJustMadeBuild(false); // Reset for the next turn
-      }
+      socket.on('connect', () => {
+        console.log('Connected to Set & Seize server:', socket.id);
+        setMessages(prev => [...prev, 'Connected to server.']);
+        initializeGame(); // Start matchmaking once connected
+      });
 
-      setHasPlayedCardThisTurn(false); // Reset for the next player's turn
-      setSelectedMiddleCards([]); // Clear selected middle cards at the end of the turn
-      setSelectedPlayerCard(null); // Clear selected player card at the end of the turn
-      return prev === 'player' ? 'ai' : 'player';
-    });
-  }, [playerJustMadeBuild, aiJustMadeBuild, setPlayerMustCapture, setPlayerLastBuildValue, setPlayerJustMadeBuild, setAiMustCapture, setAiLastBuildValue, setAiJustMadeBuild, setSelectedMiddleCards, setSelectedPlayerCard]);
+      socket.on('snsGameStart', (gameState: SnsGameState) => {
+        console.log('Received snsGameStart. Full gameState:', JSON.stringify(gameState, null, 2));
+        console.log('Player hands on game start:', gameState.players.map(p => ({ id: p.id, handSize: p.hand.length })));
+        setGameId(gameState.id);
+        setPlayers(gameState.players.map(p => ({
+          ...p,
+          hand: p.hand.map(card => ({ ...card })), // Deep copy cards in hand
+          collectedCards: p.collectedCards.map(card => ({ ...card })), // Deep copy collected cards
+        })));
+        setMiddleCards(gameState.middleCards.map(item => {
+          if ('cards' in item) {
+            return { ...item, cards: item.cards.map(card => ({ ...card })) }; // Deep copy cards in builds
+          }
+          return { ...item }; // Deep copy single cards
+        }));
+        setDeckSize(gameState.deck.length);
+        setCurrentPlayerId(gameState.currentPlayerId);
+        setLastCapturePlayerId(gameState.lastCapturePlayerId);
+        setGameEnded(gameState.gameEnded);
+        setGameResult(gameState.gameResult);
+        setGamePhase(gameState.gamePhase);
+        setIsGameInitialized(true);
+        setTurnTimerEndsAt(gameState.turnTimerEndsAt);
+        setMessages(prev => [...prev, 'Game started!']);
+        setErrors([]); // Clear errors on game start
+      });
 
-  const calculateSetAndSeizeScores = useCallback(() => {
-    console.log('Calculating scores...');
-    const calculatePlayerPoints = (collectedCards: SnsCard[]): number => {
-      let points = 0;
-      console.log(`calculatePlayerPoints for ${collectedCards.length} cards:`); // Debug log
+      socket.on('snsGameStateUpdate', (gameState: SnsGameState) => {
+        console.log('Received snsGameStateUpdate. Full gameState:', JSON.stringify(gameState, null, 2));
+        console.log('Player hands on update:', gameState.players.map(p => ({ id: p.id, handSize: p.hand.length, handIds: p.hand.map(c => c.id) })));
+        setPlayers(gameState.players.map(p => ({
+          ...p,
+          hand: p.hand.map(card => ({ ...card })), // Deep copy cards in hand
+          collectedCards: p.collectedCards.map(card => ({ ...card })), // Deep copy collected cards
+        })));
+        setMiddleCards(gameState.middleCards.map(item => {
+          if ('cards' in item) {
+            return { ...item, cards: item.cards.map(card => ({ ...card })) }; // Deep copy cards in builds
+          }
+          return { ...item }; // Deep copy single cards
+        }));
+        setDeckSize(gameState.deck.length);
+        setCurrentPlayerId(gameState.currentPlayerId);
+        setLastCapturePlayerId(gameState.lastCapturePlayerId);
+        setGameEnded(gameState.gameEnded);
+        setGameResult(gameState.gameResult);
+        setGamePhase(gameState.gamePhase);
+        setTurnTimerEndsAt(gameState.turnTimerEndsAt);
+        // Update player-specific states for the current client
+        const selfPlayerState = gameState.players.find((p: SnsPlayerState) => p.id === socketRef.current?.id);
+        if (selfPlayerState) {
+          setPlayerMustCapture(selfPlayerState.mustCapture);
+          setPlayerLastBuildValue(selfPlayerState.lastBuildValue);
+          setPlayerJustMadeBuild(selfPlayerState.justMadeBuild);
+        }
+        setSelectedMiddleCards([]); // Clear selection after server update
+        setSelectedPlayerCard(null); // Clear selection after server update
+      });
 
-      collectedCards.forEach(card => {
-        // Each Ace (A♠, A♣, A♦, A♥)
-        if (card.rank === 'A') {
-          points += 1;
-          console.log(`  +1 for Ace (${card.id}). Current points: ${points}`); // Debug log
-        }
-        // 2 of Spades (2♠)
-        if (card.rank === '2' && card.suit === 'S') {
-          points += 1;
-          console.log(`  +1 for 2S (${card.id}). Current points: ${points}`); // Debug log
-        }
-        // 10 of Diamonds (10♦)
-        if (card.rank === 'T' && card.suit === 'D') {
-          points += 2;
-          console.log(`  +2 for 10D (${card.id}). Current points: ${points}`); // Debug log
+      socket.on('snsTurnTimeout', ({ playerId }: { gameId: string, playerId: string }) => {
+        // This event is no longer used, as players are now kicked on timeout.
+        // The 'snsKickedDueToTimeout' or 'snsOpponentDisconnected' events will handle this.
+        console.log(`(Deprecated) Player ${playerId} timed out.`);
+      });
+
+      socket.on('snsKickedDueToTimeout', ({ message }: { gameId: string, playerId: string, message: string }) => {
+        console.log('Kicked due to timeout:', message);
+        setMessages(prev => [...prev, message]);
+        setGameEnded(true);
+        setGamePhase('gameOver');
+        setGameResult({ winner: 'ai', playerScore: 0, aiScore: 99 }); // Player loses if kicked
+        if (socketRef.current) {
+          socketRef.current.disconnect();
+          socketRef.current = null;
         }
       });
-      console.log(`  Individual card points total: ${points}`); // Debug log
-      return points;
-    };
 
-    let playerScore = calculatePlayerPoints(playerCollected);
-    let aiScore = calculatePlayerPoints(aiCollected);
-
-    console.log(`Initial scores - Player: ${playerScore}, AI: ${aiScore}`); // Debug log
-
-    // Calculate "Most Spades" point globally
-    const playerSpades = playerCollected.filter(card => card.suit === 'S').length;
-    const aiSpades = aiCollected.filter(card => card.suit === 'S').length;
-    console.log(`Spades - Player: ${playerSpades}, AI: ${aiSpades}`); // Debug log
-
-    if (playerSpades > aiSpades) {
-      playerScore += 1;
-      console.log(`Player gets +1 for Most Spades. Player score: ${playerScore}`); // Debug log
-    } else if (aiSpades > playerSpades) {
-      aiScore += 1;
-      console.log(`AI gets +1 for Most Spades. AI score: ${aiScore}`); // Debug log
-    } else {
-      console.log('Tie in Spades, no points awarded.'); // Debug log
-    }
-
-    // Calculate "Most Total Cards" point globally
-    const playerTotalCards = playerCollected.length;
-    const aiTotalCards = aiCollected.length;
-    console.log(`Total Cards - Player: ${playerTotalCards}, AI: ${aiTotalCards}`); // Debug log
-
-    if (playerTotalCards > aiTotalCards) {
-      playerScore += 3;
-      console.log(`Player gets +3 for Most Cards. Player score: ${playerScore}`); // Debug log
-    } else if (aiTotalCards > playerTotalCards) {
-      aiScore += 3;
-      console.log(`AI gets +3 for Most Cards. AI score: ${aiScore}`); // Debug log
-    } else if (playerTotalCards === aiTotalCards && playerTotalCards === 26) {
-      console.log('Tie in total cards (26 each), 3 points for most cards not awarded.');
-    } else if (playerTotalCards === aiTotalCards) {
-      console.log('Tie in total cards (not 26 each), no points awarded.'); // Debug log
-    }
-
-    let winner: 'player' | 'ai' | 'draw' | null = null;
-    if (playerScore > aiScore) {
-      winner = 'player';
-    } else if (aiScore > playerScore) {
-      winner = 'ai';
-    } else {
-      winner = 'draw';
-    }
-
-    console.log(`Game Over! Player Score: ${playerScore}, AI Score: ${aiScore}. Winner: ${winner}`);
-    setGameResult({ winner, playerScore, aiScore });
-  }, [playerCollected, aiCollected]);
-
-  useEffect(() => {
-    console.log(`Game Over useEffect: playerHand.length=${playerHand.length}, aiHand.length=${aiHand.length}, gameEnded=${gameEnded}, gamePhase=${gamePhase}, isGameInitialized=${isGameInitialized}`); // New debug log
-    // Only trigger this logic if both hands are empty and the game has not already ended AND game is in playing phase AND is initialized
-    if (isGameInitialized && playerHand.length === 0 && aiHand.length === 0 && !gameEnded && gamePhase === 'playing') {
-      if (deck.length > 0) {
-        // Deal new hands if deck is not empty
-        dealNewHands(deck);
-      } else {
-        // Game over logic: Deck is empty and no more cards to deal
-        console.log('Deck is empty. Game Over!');
-        setGamePhase('gameOver'); // Set phase to game over
-        // Last player who captured gets middle cards
-        if (lastCapturePlayerId) {
-          const remainingMiddleCards = getIndividualCardsFromSelection(middleCards);
-          if (lastCapturePlayerId === 'player') {
-            setPlayerCollected(prev => {
-              const updatedCollected = [...prev, ...remainingMiddleCards];
-              console.log('Player collected remaining middle cards:', updatedCollected.map(c => c.id));
-              return updatedCollected;
-            });
-          } else {
-            setAiCollected(prev => {
-              const updatedCollected = [...prev, ...remainingMiddleCards];
-              console.log('AI collected remaining middle cards:', updatedCollected.map(c => c.id));
-              return updatedCollected;
-            });
-          }
-          setMiddleCards([]); // Clear middle cards
+      socket.on('snsOpponentDisconnected', (message: string) => {
+        console.log('Opponent disconnected:', message);
+        setMessages(prev => [...prev, `Opponent disconnected: ${message}`]);
+        setGameEnded(true);
+        setGamePhase('gameOver');
+        setGameResult({ winner: 'player', playerScore: 99, aiScore: 0 }); // Award win to player
+        if (socketRef.current) {
+          socketRef.current.disconnect();
+          socketRef.current = null;
         }
-        setGameEnded(true); // Signal that the game has ended
-        calculateSetAndSeizeScores(); // Calculate scores when the game ends
-      }
+      });
+
+      socket.on('snsMessage', (message: string) => {
+        setMessages(prev => [...prev, message]);
+      });
+
+      socket.on('snsError', (error: string) => {
+        setErrors(prev => [...prev, error]);
+        console.error('Set & Seize Server Error:', error);
+      });
+
+      socket.on('disconnect', () => {
+        console.log('Disconnected from Set & Seize server.');
+        setMessages(prev => [...prev, 'Disconnected from server.']);
+        setGameEnded(true);
+        setGamePhase('gameOver');
+        setGameResult(prev => prev || { winner: null, playerScore: 0, aiScore: 0 }); // Set a default if not already set
+        socketRef.current = null;
+      });
+
+      return () => {
+        if (socketRef.current) {
+          socketRef.current.disconnect();
+          socketRef.current = null;
+        }
+      };
+    } else if (!isOnline && !isGameInitialized) {
+      // For offline play, initialize game directly if not already initialized
+      initializeGame();
     }
-  }, [playerHand, aiHand, deck, dealNewHands, lastCapturePlayerId, middleCards, setPlayerCollected, setAiCollected, setMiddleCards, getIndividualCardsFromSelection, calculateSetAndSeizeScores, gameEnded, gamePhase, setGamePhase, isGameInitialized]); // Added isGameInitialized to dependencies
+  }, [isOnline, initializeGame, isGameInitialized]);
+
+  // AI turn logic (only for offline play)
+  useEffect(() => {
+    const selfPlayer = players.find(p => p.id === socketRef.current?.id);
+    const opponentPlayer = players.find(p => p.id !== socketRef.current?.id);
+
+    if (!isOnline && currentPlayerId === 'ai' && opponentPlayer) {
+      const aiTurnTimeout = setTimeout(() => {
+        if (opponentPlayer.hand.length > 0) {
+          const cardToPlay = opponentPlayer.hand[0];
+          // Basic AI: always try to drop for now
+          // In a real AI, this would involve complex decision-making
+          playCard(cardToPlay, 'drop');
+        } else {
+          // If AI has no cards, end turn (this shouldn't happen if dealing new hands works)
+          // This path might need more robust handling for game end in offline mode
+          console.log('AI has no cards, ending turn.');
+          // For now, we'll just let the game end naturally if deck is empty.
+        }
+      }, 1000);
+
+      return () => clearTimeout(aiTurnTimeout);
+    }
+  }, [currentPlayerId, players, isOnline]); // Depend on currentPlayerId and players
 
   const checkValidCapture = useCallback((handCard: SnsCard, selectedMiddleItems: (SnsCard | SnsBuild)[]): boolean => {
     if (selectedMiddleItems.length === 0) {
@@ -556,7 +556,7 @@ const useSetAndSeizeGameLogic = ({ isOnline }: UseSetAndSeizeGameLogicProps) => 
     const middleCardsToBuild = getIndividualCardsFromSelection(selectedMiddleItems);
 
     const targetValue = getRankValue(targetCard.rank);
-    const handCardPossibleValues = getCardPossibleValues(handCard); // Re-added this declaration here.
+    const handCardPossibleValues = getCardPossibleValues(handCard);
 
     for (const handValue of handCardPossibleValues) {
       const requiredSumFromMiddle = targetValue - handValue;
@@ -637,269 +637,243 @@ const useSetAndSeizeGameLogic = ({ isOnline }: UseSetAndSeizeGameLogicProps) => 
   const playCard = useCallback((
     cardToPlay: SnsCard,
     actionType: 'drop' | 'capture' | 'build',
-    targetCard?: SnsCard | null, // Optional for build action
-    buildType?: 'soft-build' | 'hard-build' | null // Optional for build action
+    targetCard?: SnsCard | null,
+    buildType?: 'soft-build' | 'hard-build' | null
   ) => {
-    if (hasPlayedCardThisTurn) {
-      console.log(`${currentPlayer} has already played a card this turn.`);
-      setSelectedMiddleCards([]); // Clear any existing selection
-      setSelectedPlayerCard(null); // Clear selected player card
-      return;
-    }
-
-    // Determine current player's mustCapture and lastBuildValue states
-    const currentMustCapture = currentPlayer === 'player' ? playerMustCapture : aiMustCapture;
-    const currentLastBuildValue = currentPlayer === 'player' ? playerLastBuildValue : aiLastBuildValue;
-    const setPlayerMustCaptureState = currentPlayer === 'player' ? setPlayerMustCapture : setAiMustCapture;
-    const setPlayerLastBuildValueState = currentPlayer === 'player' ? setPlayerLastBuildValue : setAiLastBuildValue;
-
-
-    // Enforce "Must Capture" rule
-    if (currentMustCapture) {
-      if (actionType === 'capture') {
-        // Allowed to capture
-        console.log(`${currentPlayer} is fulfilling 'Must Capture' rule with a capture.`);
-      } else if (actionType === 'build' && targetCard && currentLastBuildValue !== null) {
-        const newBuildValue = getRankValue(targetCard.rank);
-        if (newBuildValue === currentLastBuildValue) {
-          // Exception: Allowed to build if the new build value matches the last build value
-          console.log(`${currentPlayer} is fulfilling 'Must Capture' exception by building same value (${newBuildValue}).`);
-        } else {
-          console.log(`Invalid move: ${currentPlayer} must capture or build same value (${currentLastBuildValue}) after a build. Tried to build ${newBuildValue}.`);
-          setSelectedPlayerCard(null); // Clear selected player card on invalid move
-          return; // Stop the function execution
-        }
-      } else {
-        console.log(`Invalid move: ${currentPlayer} must capture after a build. Tried to ${actionType}.`);
-        setSelectedPlayerCard(null); // Clear selected player card on invalid move
-        return; // Stop the function execution
-      }
-    }
-
-    if (actionType === 'drop') {
-      setMiddleCards(prevMiddleCards => [...prevMiddleCards, cardToPlay]);
-      console.log(`${currentPlayer} drops ${cardToPlay.rank}${cardToPlay.suit}`);
-      setPlayerMustCaptureState(false);
-      setPlayerLastBuildValueState(null);
-      if (currentPlayer === 'player') {
-        setPlayerJustMadeBuild(false); // Dropping a card ends the "just made build" state
-      } else {
-        setAiJustMadeBuild(false);
-      }
-    } else if (actionType === 'capture') {
-      if (!checkValidCapture(cardToPlay, selectedMiddleCards)) {
-        console.log("Invalid capture: Selected middle cards do not sum up to the played card's value.");
-        setSelectedPlayerCard(null); // Clear selected player card on invalid move
-        return; // Stop the function execution
+    if (isOnline && socketRef.current && gameId) {
+      console.log(`Emitting snsPlayCard: ${actionType} with ${cardToPlay.id}`);
+      socketRef.current.emit('snsPlayCard', {
+        gameId,
+        playerId: socketRef.current.id,
+        cardToPlay,
+        actionType,
+        targetCard,
+        buildType,
+        selectedMiddleItems: selectedMiddleCards,
+      });
+    } else {
+      // Offline logic (mostly moved to server for online)
+      const currentPlayerState = players.find(p => p.id === currentPlayerId);
+      if (!currentPlayerState) {
+        console.error('Current player state not found for offline play.');
+        return;
       }
 
-      console.log(`${currentPlayer} captures with ${cardToPlay.rank}${cardToPlay.suit} and target cards:`, selectedMiddleCards);
-      
-      const capturedIndividualCards = getIndividualCardsFromSelection(selectedMiddleCards);
-
-      if (currentPlayer === 'player') {
-        setPlayerCollected(prev => [...prev, cardToPlay, ...capturedIndividualCards]);
-      } else {
-        setAiCollected(prev => [...prev, cardToPlay, ...capturedIndividualCards]);
-      }
-      setMiddleCards(prev => prev.filter(item => !selectedMiddleCards.some(selectedItem => selectedItem.id === item.id)));
-      setLastCapturePlayerId(currentPlayer);
-      setPlayerMustCaptureState(false); // Capture was performed, reset mustCapture for current player
-      setPlayerLastBuildValueState(null); // Reset lastBuildValue for current player after capture
-      // If a capture happened, the mustCapture rule ends for the *other* player if they had it.
-      if (currentPlayer === 'player') {
-        setAiMustCapture(false);
-        setAiLastBuildValue(null);
-        setAiJustMadeBuild(false);
-      } else {
-        setPlayerMustCapture(false);
-        setPlayerLastBuildValue(null);
-        setPlayerJustMadeBuild(false); // Capturing ends the "just made build" state for the player
-      }
-    } else if (actionType === 'build' && targetCard) {
-      if (buildType === 'soft-build') {
-        // Check if any selected middle card is a hard build, which cannot be built upon by a soft build
-        const isBuildingOnHardBuildForSoft = selectedMiddleCards.some(item => 'isHard' in item && item.isHard);
-        if (isBuildingOnHardBuildForSoft) {
-          console.log("Invalid soft build: Cannot soft build on a hard build.");
-          setSelectedPlayerCard(null); // Clear selected player card on invalid move
-          return;
-        }
-
-        if (!checkValidSoftBuild(cardToPlay, targetCard, selectedMiddleCards)) {
-          console.log("Invalid soft build: Selected cards do not sum up to the target value.");
-          setSelectedPlayerCard(null); // Clear selected player card on invalid move
-          return;
-        }
-        console.log(`${currentPlayer} performs a soft build with ${cardToPlay.rank}${cardToPlay.suit} onto`, selectedMiddleCards, `to target ${targetCard.rank}${targetCard.suit}`);
-
-        // Create a new SnsBuild object
-        const newBuild: SnsBuild = {
-          id: `BUILD-${targetCard.id}-${Date.now()}`, // Unique ID for the build
-          cards: [cardToPlay, ...getIndividualCardsFromSelection(selectedMiddleCards)], // All cards in the pile, flattened
-          totalValue: getRankValue(targetCard.rank), // The target value
-          ownerId: currentPlayer, // The player who created this build
-          isHard: false, // This is a soft build
-        };
-
-        // Remove selected middle cards from the middle
-        setMiddleCards(prev => prev.filter(item => {
-          const isSelected = selectedMiddleCards.some(selectedItem => selectedItem.id === item.id);
-          return item.id !== cardToPlay.id && !isSelected;
-        }));
-        
-        // Add the new built pile to the middle
-        setMiddleCards(prev => [...prev, newBuild]);
-
-        setPlayerMustCaptureState(true); // A build always results in a capture opportunity for current player
-        setPlayerLastBuildValueState(newBuild.totalValue); // Store the value of the new build for current player
-        if (currentPlayer === 'player') {
-          setPlayerJustMadeBuild(true);
-        } else {
-          setAiJustMadeBuild(true);
-        }
-      } // Closing brace for if (buildType === 'soft-build')
-      
-      // This else if should be a sibling to the soft-build if, not nested inside it.
-      else if (buildType === 'hard-build') {
-        // Check if any selected middle card is a hard build
-        const selectedHardBuilds = selectedMiddleCards.filter((item): item is SnsBuild => 'isHard' in item && item.isHard);
-        const targetValue = getRankValue(targetCard.rank);
-
-        // If hard builds are selected, ensure their values match the target value
-        if (selectedHardBuilds.length > 0) {
-          const allHardBuildsMatchTarget = selectedHardBuilds.every(build => build.totalValue === targetValue);
-          if (!allHardBuildsMatchTarget) {
-            console.log("Invalid hard build: When building on existing hard builds, the new build's value must match the existing hard build's value.");
-            setSelectedPlayerCard(null); // Clear selected player card on invalid move
+      // Enforce "Must Capture" rule for offline AI
+      if (currentPlayerState.mustCapture) {
+        if (actionType === 'capture') {
+          console.log(`${currentPlayerId} is fulfilling 'Must Capture' rule with a capture.`);
+        } else if (actionType === 'build' && targetCard && currentPlayerState.lastBuildValue !== null) {
+          const newBuildValue = getRankValue(targetCard.rank);
+          if (newBuildValue === currentPlayerState.lastBuildValue) {
+            console.log(`${currentPlayerId} is fulfilling 'Must Capture' exception by building same value (${newBuildValue}).`);
+          } else {
+            console.log(`Invalid move: ${currentPlayerId} must capture or build same value (${currentPlayerState.lastBuildValue}) after a build. Tried to build ${newBuildValue}.`);
             return;
           }
+        } else {
+          console.log(`Invalid move: ${currentPlayerId} must capture after a build. Tried to ${actionType}.`);
+          return;
         }
+      }
 
-        const validHardBuilds = checkValidHardBuild(cardToPlay, targetCard, selectedMiddleCards);
+      setPlayers(prevPlayers => {
+        const updatedPlayers = prevPlayers.map(p => {
+          if (p.id === currentPlayerId) {
+            const updatedHand = p.hand.filter(c => c.id !== cardToPlay.id);
+            let updatedCollected = [...p.collectedCards];
+            let updatedMustCapture = p.mustCapture;
+            let updatedLastBuildValue = p.lastBuildValue;
+            let updatedJustMadeBuild = false;
 
-        if (!validHardBuilds) {
-          console.log("Invalid hard build: Selected cards do not form multiple builds for the target value.");
-          setSelectedPlayerCard(null); // Clear selected player card on invalid move
-          return; // Stop the function execution
-        }
-        console.log(`${currentPlayer} performs a hard build with ${cardToPlay.rank}${cardToPlay.suit} and selected cards:`, selectedMiddleCards, `to target ${targetCard.rank}${targetCard.suit}`);
-
-        // Check if any selected hard builds belonged to the opponent
-        const opponent = currentPlayer === 'player' ? 'ai' : 'player';
-        const setOpponentMustCaptureState = opponent === 'player' ? setPlayerMustCapture : setAiMustCapture;
-        const setOpponentLastBuildValueState = opponent === 'player' ? setPlayerLastBuildValue : setAiLastBuildValue;
-        const setOpponentJustMadeBuildState = opponent === 'player' ? setPlayerJustMadeBuild : setAiJustMadeBuild;
-
-        selectedMiddleCards.forEach(item => {
-          if ('isHard' in item && item.isHard && item.ownerId === opponent) {
-            console.log(`Opponent's (${opponent}) hard build (${item.id}) was stack built. Resetting their mustCapture state.`);
-            setOpponentMustCaptureState(false);
-            setOpponentLastBuildValueState(null);
-            setOpponentJustMadeBuildState(false);
+            if (actionType === 'drop') {
+              setMiddleCards(prevMiddle => [...prevMiddle, cardToPlay]);
+              console.log(`${currentPlayerId} drops ${cardToPlay.rank}${cardToPlay.suit}`);
+              updatedMustCapture = false;
+              updatedLastBuildValue = null;
+            } else if (actionType === 'capture') {
+              if (!checkValidCapture(cardToPlay, selectedMiddleCards)) {
+                console.log("Invalid capture: Selected middle cards do not sum up to the played card's value.");
+                return p; // Return original player state if invalid
+              }
+              const capturedIndividualCards = getIndividualCardsFromSelection(selectedMiddleCards);
+              updatedCollected = [...updatedCollected, cardToPlay, ...capturedIndividualCards];
+              setMiddleCards(prevMiddle => prevMiddle.filter(item => !selectedMiddleCards.some(selectedItem => selectedItem.id === item.id)));
+              setLastCapturePlayerId(currentPlayerId);
+              updatedMustCapture = false;
+              updatedLastBuildValue = null;
+            } else if (actionType === 'build' && targetCard) {
+              if (buildType === 'soft-build') {
+                const isBuildingOnHardBuildForSoft = selectedMiddleCards.some(item => 'isHard' in item && item.isHard);
+                if (isBuildingOnHardBuildForSoft) {
+                  console.log("Invalid soft build: Cannot soft build on a hard build.");
+                  return p;
+                }
+                if (!checkValidSoftBuild(cardToPlay, targetCard, selectedMiddleCards)) {
+                  console.log("Invalid soft build: Selected cards do not sum up to the target value.");
+                  return p;
+                }
+                const newBuild: SnsBuild = {
+                  id: `BUILD-${targetCard.id}-${Date.now()}`,
+                  cards: [cardToPlay, ...getIndividualCardsFromSelection(selectedMiddleCards)],
+                  totalValue: getRankValue(targetCard.rank),
+                  ownerId: currentPlayerId,
+                  isHard: false,
+                };
+                setMiddleCards(prevMiddle => prevMiddle.filter(item => !selectedMiddleCards.some(selectedItem => selectedItem.id === item.id)));
+                setMiddleCards(prevMiddle => [...prevMiddle, newBuild]);
+                updatedMustCapture = true;
+                updatedLastBuildValue = newBuild.totalValue;
+                updatedJustMadeBuild = true;
+              } else if (buildType === 'hard-build') {
+                const selectedHardBuilds = selectedMiddleCards.filter((item): item is SnsBuild => 'isHard' in item && item.isHard);
+                const targetValue = getRankValue(targetCard.rank);
+                if (selectedHardBuilds.length > 0) {
+                  const allHardBuildsMatchTarget = selectedHardBuilds.every(build => build.totalValue === targetValue);
+                  if (!allHardBuildsMatchTarget) {
+                    console.log("Invalid hard build: When building on existing hard builds, the new build's value must match the existing hard build's value.");
+                    return p;
+                  }
+                }
+                const validHardBuilds = checkValidHardBuild(cardToPlay, targetCard, selectedMiddleCards);
+                if (!validHardBuilds) {
+                  console.log("Invalid hard build: Selected cards do not form multiple builds for the target value.");
+                  return p;
+                }
+                const hardBuildGroupId = `HARDBUILDGROUP-${Date.now()}`;
+                const newBuilds: SnsBuild[] = validHardBuilds.map((buildCards, index) => ({
+                  id: `HARDBUILD-${targetCard.id}-${Date.now()}-${index}`,
+                  cards: buildCards,
+                  totalValue: targetValue,
+                  ownerId: currentPlayerId,
+                  isHard: true,
+                  hardBuildGroupId: hardBuildGroupId,
+                }));
+                const allCardsInNewBuilds = new Set<string>();
+                newBuilds.forEach(build => {
+                  build.cards.forEach(card => allCardsInNewBuilds.add(card.id));
+                });
+                setMiddleCards(prevMiddle => prevMiddle.filter(item => {
+                  if ('id' in item && allCardsInNewBuilds.has(item.id)) return false;
+                  if ('cards' in item && selectedMiddleCards.some(selectedItem => selectedItem.id === item.id)) return false;
+                  return true;
+                }));
+                setMiddleCards(prevMiddle => [...prevMiddle, ...newBuilds]);
+                updatedMustCapture = true;
+                updatedLastBuildValue = targetValue;
+                updatedJustMadeBuild = true;
+              }
+            }
+            return { ...p, hand: updatedHand, collectedCards: updatedCollected, mustCapture: updatedMustCapture, lastBuildValue: updatedLastBuildValue, justMadeBuild: updatedJustMadeBuild };
           }
+          return p;
         });
 
-        const hardBuildGroupId = `HARDBUILDGROUP-${Date.now()}`; // Unique ID for this group of hard builds
+        // Update opponent's mustCapture if a capture happened
+        if (actionType === 'capture') {
+          const opponentId = currentPlayerId === 'player' ? 'ai' : 'player';
+          return updatedPlayers.map(p => {
+            if (p.id === opponentId) {
+              return { ...p, mustCapture: false, lastBuildValue: null, justMadeBuild: false };
+            }
+            return p;
+          });
+        }
+        return updatedPlayers;
+      });
 
-        const newBuilds: SnsBuild[] = validHardBuilds.map((buildCards, index) => ({
-          id: `HARDBUILD-${targetCard.id}-${Date.now()}-${index}`, // Unique ID for each individual build within the group
-          cards: buildCards, // Cards in this specific build
-          totalValue: getRankValue(targetCard.rank), // The target value
-          ownerId: currentPlayer, // The player who created this build
-          isHard: true, // This is a hard build
-          hardBuildGroupId: hardBuildGroupId, // Assign the common group ID
-        }));
-
-        // Collect all individual cards that were part of the new hard builds
-        const allCardsInNewBuilds = new Set<string>();
-        newBuilds.forEach(build => {
-          build.cards.forEach(card => allCardsInNewBuilds.add(card.id));
-        });
-
-        // Remove selected middle cards from the middle and the played card
-        setMiddleCards(prev => prev.filter(item => {
-          // Filter out individual cards that are now part of the new builds
-          if ('id' in item && allCardsInNewBuilds.has(item.id)) {
-            return false;
-          }
-          // Also filter out any existing builds that were part of selectedMiddleCards
-          // (though getIndividualCardsFromSelection already flattens them, this is a safeguard)
-          if ('cards' in item && selectedMiddleCards.some(selectedItem => selectedItem.id === item.id)) {
-            return false;
-          }
-          return true;
-        }));
+      // Check for game end in offline mode
+      const player1 = players.find(p => p.id === 'player');
+      const player2 = players.find(p => p.id === 'ai');
+      if (player1?.hand.length === 0 && player2?.hand.length === 0) {
+        // This is where dealNewHands or game over logic would be.
+        // For now, let's assume the game ends.
+        setGamePhase('gameOver');
+        setGameEnded(true);
+        // Calculate scores for offline mode
+        const player1Collected = players.find(p => p.id === 'player')?.collectedCards || [];
+        const player2Collected = players.find(p => p.id === 'ai')?.collectedCards || [];
         
-        // Add the new built piles to the middle
-        setMiddleCards(prev => [...prev, ...newBuilds]);
+        const calculatePlayerPoints = (collectedCards: SnsCard[]): number => {
+          let points = 0;
+          collectedCards.forEach(card => {
+            if (card.rank === 'A') points += 1;
+            if (card.rank === '2' && card.suit === 'S') points += 1;
+            if (card.rank === 'T' && card.suit === 'D') points += 2;
+          });
+          return points;
+        };
 
-        setPlayerMustCaptureState(true); // A build always results in a capture opportunity for current player
-        setPlayerLastBuildValueState(getRankValue(targetCard.rank)); // Store the value of the new hard build for current player
-        if (currentPlayer === 'player') {
-          setPlayerJustMadeBuild(true);
-        } else {
-          setAiJustMadeBuild(true);
+        let p1Score = calculatePlayerPoints(player1Collected);
+        let p2Score = calculatePlayerPoints(player2Collected);
+
+        const p1Spades = player1Collected.filter(card => card.suit === 'S').length;
+        const p2Spades = player2Collected.filter(card => card.suit === 'S').length;
+        if (p1Spades > p2Spades) p1Score += 1;
+        else if (p2Spades > p1Spades) p2Score += 1;
+
+        const p1TotalCards = player1Collected.length;
+        const p2TotalCards = player2Collected.length;
+        if (p1TotalCards > p2TotalCards) p1Score += 3;
+        else if (p2TotalCards > p1TotalCards) p2Score += 3;
+
+        let winner: 'player' | 'ai' | 'draw' | null = null;
+        if (p1Score > p2Score) winner = 'player';
+        else if (p2Score > p1Score) winner = 'ai';
+        else winner = 'draw';
+
+        setGameResult({ winner, playerScore: p1Score, aiScore: p2Score });
+
+        // Last player who captured gets middle cards
+        if (lastCapturePlayerId) {
+          const remainingMiddleCards = getIndividualCardsFromSelection(middleCards);
+          setPlayers(prevPlayers => prevPlayers.map(p => {
+            if (p.id === lastCapturePlayerId) {
+              return { ...p, collectedCards: [...p.collectedCards, ...remainingMiddleCards] };
+            }
+            return p;
+          }));
+          setMiddleCards([]); // Clear middle cards
         }
-      } // Closing brace for else if (buildType === 'hard-build')
-    } // Closing brace for else if (actionType === 'build' && targetCard)
+      }
 
-    // Remove card from hand after all validations and actions are complete
-    if (currentPlayer === 'player') {
-      setPlayerHand(prev => prev.filter(c => c.id !== cardToPlay.id));
-    } else {
-      setAiHand(prev => prev.filter(c => c.id !== cardToPlay.id));
+      setSelectedMiddleCards([]);
+      setSelectedPlayerCard(null);
+      setCurrentPlayerId(prev => (prev === 'player' ? 'ai' : 'player'));
     }
+  }, [isOnline, gameId, selectedMiddleCards, players, currentPlayerId, checkValidCapture, checkValidSoftBuild, checkValidHardBuild, getIndividualCardsFromSelection, lastCapturePlayerId]);
 
-    setHasPlayedCardThisTurn(true);
-    endTurn();
-  }, [currentPlayer, endTurn, hasPlayedCardThisTurn, selectedMiddleCards, setSelectedPlayerCard, checkValidCapture, checkValidSoftBuild, checkValidHardBuild, playerMustCapture, aiMustCapture, playerLastBuildValue, aiLastBuildValue, getIndividualCardsFromSelection, setPlayerMustCapture, setAiMustCapture, setPlayerLastBuildValue, setAiLastBuildValue, setPlayerJustMadeBuild, setAiJustMadeBuild]);
-
-  // AI turn logic
-  useEffect(() => {
-    if (currentPlayer === 'ai' && !isOnline) {
-      const aiTurnTimeout = setTimeout(() => {
-        if (aiHand.length > 0) {
-          const cardToPlay = aiHand[0];
-          // Basic AI: always try to drop for now
-          playCard(cardToPlay, 'drop');
-        } else {
-          endTurn();
-        }
-      }, 1000);
-
-      return () => clearTimeout(aiTurnTimeout);
-    }
-  }, [currentPlayer, aiHand, isOnline, playCard, endTurn]);
 
   return {
-    deck,
-    deckSize: deck.length, // Expose deck size
-    playerHand,
-    aiHand,
+    clientPlayerId: socketRef.current?.id || null, // Expose the client's actual socket ID
+    gameId,
+    players,
+    currentPlayerId,
     middleCards,
-    playerCollected,
-    aiCollected,
-    currentPlayer,
-    playerMustCapture, // Expose playerMustCapture
-    aiMustCapture,     // Expose aiMustCapture
-    selectedMiddleCards, // Expose selected middle cards
-    setSelectedMiddleCards, // Expose the setter for selectedMiddleCards
-    selectedPlayerCard, // Expose selectedPlayerCard
-    setSelectedPlayerCard, // Expose the setter for selectedPlayerCard
+    deckSize,
+    lastCapturePlayerId,
+    gameEnded,
+    gameResult,
+    gamePhase,
+    isGameInitialized,
+    playerMustCapture,
+    playerLastBuildValue,
+    playerJustMadeBuild,
+    selectedMiddleCards,
+    setSelectedMiddleCards,
+    selectedPlayerCard,
+    setSelectedPlayerCard,
+    turnTimerEndsAt,
+    messages,
+    errors,
     initializeGame,
-    resetGame,           // Expose resetGame function
+    resetGame,
     playCard,
-    toggleMiddleCardSelection, // Expose toggle function
-    hasPlayedCardThisTurn,
-    checkValidCapture, // Expose checkValidCapture
-    checkValidSoftBuild, // Expose checkValidSoftBuild
-    checkValidHardBuild, // Expose checkValidHardBuild
-    playerJustMadeBuild, // Expose playerJustMadeBuild
-    aiJustMadeBuild,     // Expose aiJustMadeBuild
-    gameEnded,           // Expose gameEnded state
-    gameResult,          // Expose gameResult
-    gamePhase,           // Expose gamePhase
+    toggleMiddleCardSelection,
+    checkValidCapture,
+    checkValidSoftBuild,
+    checkValidHardBuild,
+    cancelMatchmaking, // Add cancelMatchmaking to the returned object
   };
 };
 

@@ -78,12 +78,13 @@ export interface SnsCard {
   isAce?: boolean; // Flag for Aces to handle dual value
 }
 
-export interface SnsPlayer {
-  id: string; // 'player1', 'player2' (or 'ai')
-  hand: SnsCard[]; // 4 cards in hand
-  capturedPile: SnsCard[];
-  score: number;
-  activeBuilds: SnsBuild[]; // Builds this player owns
+export interface SnsPlayerState {
+  id: string;
+  hand: SnsCard[];
+  collectedCards: SnsCard[];
+  mustCapture: boolean;
+  lastBuildValue: number | null;
+  justMadeBuild: boolean;
 }
 
 export interface SnsBuild {
@@ -97,31 +98,15 @@ export interface SnsBuild {
 }
 
 export interface SnsGameState {
-  deck: SnsCard[];
-  middleCards: SnsCard[];
-  players: { [key: string]: SnsPlayer }; // 'player1', 'player2'
-  currentPlayerId: string;
-  gamePhase: 'dealing' | 'playing' | 'scoring' | 'gameOver';
-  roundOver: boolean; // True when players have played their 4 cards
-  lastCapturePlayerId: string | null; // ID of player who made the last capture
-  mustCaptureBuildId: string | null; // ID of the build the current player must try to capture
-  winnerMessage?: string;
-  // Potentially add history of plays, etc.
-}
-
-// For scoring details
-export interface SnsScoreDetails {
-  aces: number; // count of aces
-  twoOfSpades: boolean;
-  tenOfDiamonds: boolean;
-  mostSpades: boolean;
-  mostCards: boolean;
-  totalPoints: number;
-}
-
-export interface GameMessage {
   id: string;
-  text: string;
-  type: 'info' | 'error' | 'success' | 'action'; // 'action' for player actions like "Player1 captured 10H"
-  timestamp: number;
+  deck: SnsCard[];
+  players: SnsPlayerState[];
+  middleCards: (SnsCard | SnsBuild)[];
+  currentPlayerId: string;
+  gamePhase: 'loading' | 'playing' | 'gameOver';
+  lastCapturePlayerId: string | null;
+  gameEnded: boolean;
+  gameResult: { winner: 'player' | 'ai' | 'draw' | null; playerScore: number; aiScore: number } | null;
+  turnStartTime?: number;
+  turnTimerEndsAt?: number;
 }
