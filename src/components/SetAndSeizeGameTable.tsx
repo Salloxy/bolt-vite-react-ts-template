@@ -22,7 +22,8 @@ const SetAndSeizeGameTable: React.FC<SetAndSeizeGameTableProps> = ({
     playerCollected,
     aiCollected,
     currentPlayer,
-    mustCapture,
+    playerMustCapture, // Destructure player's mustCapture state
+    aiMustCapture,     // Destructure AI's mustCapture state
     selectedMiddleCards, // Destructure new state
     setSelectedMiddleCards, // Destructure the setter for selectedMiddleCards
     initializeGame,
@@ -94,9 +95,12 @@ const SetAndSeizeGameTable: React.FC<SetAndSeizeGameTableProps> = ({
   const handleDrop = () => {
     if (selectedHandCard) {
       playCard(selectedHandCard, 'drop');
-      setSelectedHandCard(null);
-      setSelectedMiddleCards([]);
-      setCaptureMode(false);
+      // State resets should happen after playCard confirms success,
+      // but playCard currently doesn't return success/failure.
+      // For now, remove these to prevent premature UI updates.
+      // setSelectedHandCard(null);
+      // setSelectedMiddleCards([]);
+      // setCaptureMode(false);
     }
   };
 
@@ -108,9 +112,11 @@ const SetAndSeizeGameTable: React.FC<SetAndSeizeGameTableProps> = ({
   const handleConfirmCapture = () => {
     if (selectedHandCard && checkValidCapture(selectedHandCard, selectedMiddleCards)) {
       playCard(selectedHandCard, 'capture');
-      setSelectedHandCard(null);
-      setSelectedMiddleCards([]);
-      setCaptureMode(false);
+      // State resets should happen after playCard confirms success.
+      // Remove these to prevent premature UI updates.
+      // setSelectedHandCard(null);
+      // setSelectedMiddleCards([]);
+      // setCaptureMode(false);
     }
   };
 
@@ -235,7 +241,8 @@ const SetAndSeizeGameTable: React.FC<SetAndSeizeGameTableProps> = ({
           )}
         </div>
         <p className="text-lg mt-2">Current Player: {currentPlayer === 'player' ? 'You' : 'AI'}</p>
-        {mustCapture && <p className="text-red-400 font-bold">MUST CAPTURE!</p>}
+        {currentPlayer === 'player' && playerMustCapture && <p className="text-red-400 font-bold">MUST CAPTURE!</p>}
+        {currentPlayer === 'ai' && aiMustCapture && <p className="text-red-400 font-bold">MUST CAPTURE!</p>}
 
         {/* Action Buttons */}
         {selectedHandCard && !captureMode && !buildMode && !showBuildOptions && ( // Initial options: Drop, Capture, Build, Cancel
@@ -317,13 +324,15 @@ const SetAndSeizeGameTable: React.FC<SetAndSeizeGameTableProps> = ({
               onClick={() => {
                 if (selectedHandCard && selectedTargetCard && buildType) {
                   playCard(selectedHandCard, 'build', selectedTargetCard, buildType);
-                  setSelectedHandCard(null);
-                  setSelectedMiddleCards([]);
-                  setCaptureMode(false);
-                  setShowBuildOptions(false);
-                  setBuildMode(false);
-                  setBuildType(null);
-                  setSelectedTargetCard(null);
+                  // State resets should happen after playCard confirms success.
+                  // Remove these to prevent premature UI updates.
+                  // setSelectedHandCard(null);
+                  // setSelectedMiddleCards([]);
+                  // setCaptureMode(false);
+                  // setShowBuildOptions(false);
+                  // setBuildMode(false);
+                  // setBuildType(null);
+                  // setSelectedTargetCard(null);
                 }
               }}
               className="px-4 py-2 bg-purple-600 rounded hover:bg-purple-700 disabled:opacity-50"

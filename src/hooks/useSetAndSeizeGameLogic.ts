@@ -251,10 +251,15 @@ const useSetAndSeizeGameLogic = ({ isOnline }: UseSetAndSeizeGameLogicProps) => 
   const [playerCollected, setPlayerCollected] = useState<SnsCard[]>([]);
   const [aiCollected, setAiCollected] = useState<SnsCard[]>([]);
   const [currentPlayer, setCurrentPlayer] = useState<'player' | 'ai'>('player');
-  const [mustCapture, setMustCapture] = useState(false);
+  const [playerMustCapture, setPlayerMustCapture] = useState(false);
+  const [aiMustCapture, setAiMustCapture] = useState(false);
+  const [playerLastBuildValue, setPlayerLastBuildValue] = useState<number | null>(null);
+  const [aiLastBuildValue, setAiLastBuildValue] = useState<number | null>(null);
   const [lastCapturePlayerId, setLastCapturePlayerId] = useState<'player' | 'ai' | null>(null);
   const [hasPlayedCardThisTurn, setHasPlayedCardThisTurn] = useState(false);
   const [selectedMiddleCards, setSelectedMiddleCards] = useState<(SnsCard | SnsBuild)[]>([]); // New state for selected middle cards
+  const [playerJustMadeBuild, setPlayerJustMadeBuild] = useState(false);
+  const [aiJustMadeBuild, setAiJustMadeBuild] = useState(false);
 
   const toggleMiddleCardSelection = useCallback((item: SnsCard | SnsBuild) => {
     setSelectedMiddleCards(prev => {
@@ -330,7 +335,10 @@ const useSetAndSeizeGameLogic = ({ isOnline }: UseSetAndSeizeGameLogicProps) => 
     setPlayerCollected([]);
     setAiCollected([]);
     setCurrentPlayer('player');
-    setMustCapture(false);
+    setPlayerMustCapture(false); // Reset player's mustCapture
+    setAiMustCapture(false);     // Reset AI's mustCapture
+    setPlayerLastBuildValue(null); // Reset player's lastBuildValue
+    setAiLastBuildValue(null);     // Reset AI's lastBuildValue
     setLastCapturePlayerId(null);
     setHasPlayedCardThisTurn(false);
   }, []);
@@ -341,10 +349,28 @@ const useSetAndSeizeGameLogic = ({ isOnline }: UseSetAndSeizeGameLogicProps) => 
 
   const endTurn = useCallback(() => {
     setCurrentPlayer(prev => {
+      // Check if the previous player (who just finished their turn) had just made a build
+      // The playerJustMadeBuild flag indicates if the player *just* made a build on this turn.
+      // If they did NOT make a build this turn, and they were previously under the mustCapture rule,
+      // then the mustCapture rule ends.
+      if (prev === 'player') {
+        if (!playerJustMadeBuild && playerMustCapture) { // If no build was made this turn, and mustCapture was active
+          setPlayerMustCapture(false);
+          setPlayerLastBuildValue(null);
+        }
+        setPlayerJustMadeBuild(false); // Reset for the next turn
+      } else if (prev === 'ai') {
+        if (!aiJustMadeBuild && aiMustCapture) { // If no build was made this turn, and mustCapture was active
+          setAiMustCapture(false);
+          setAiLastBuildValue(null);
+        }
+        setAiJustMadeBuild(false); // Reset for the next turn
+      }
+
       setHasPlayedCardThisTurn(false); // Reset for the next player's turn
       return prev === 'player' ? 'ai' : 'player';
     });
-  }, []); // Dependencies changed as it no longer relies on playerHand, aiHand, deck etc.
+  }, [playerJustMadeBuild, aiJustMadeBuild, setPlayerMustCapture, setPlayerLastBuildValue, setPlayerJustMadeBuild, setAiMustCapture, setAiLastBuildValue, setAiJustMadeBuild]);
 
   useEffect(() => {
     // Only trigger this logic if both hands are empty
@@ -515,25 +541,48 @@ const useSetAndSeizeGameLogic = ({ isOnline }: UseSetAndSeizeGameLogicProps) => 
       return;
     }
 
-    // Remove cardToPlay from current player's hand
-    if (currentPlayer === 'player') {
-      setPlayerHand(prev => prev.filter(c => c.id !== cardToPlay.id));
-    } else {
-      setAiHand(prev => prev.filter(c => c.id !== cardToPlay.id));
+    // Determine current player's mustCapture and lastBuildValue states
+    const currentMustCapture = currentPlayer === 'player' ? playerMustCapture : aiMustCapture;
+    const currentLastBuildValue = currentPlayer === 'player' ? playerLastBuildValue : aiLastBuildValue;
+    const setPlayerMustCaptureState = currentPlayer === 'player' ? setPlayerMustCapture : setAiMustCapture;
+    const setPlayerLastBuildValueState = currentPlayer === 'player' ? setPlayerLastBuildValue : setAiLastBuildValue;
+
+
+    // Enforce "Must Capture" rule
+    if (currentMustCapture) {
+      if (actionType === 'capture') {
+        // Allowed to capture
+        console.log(`${currentPlayer} is fulfilling 'Must Capture' rule with a capture.`);
+      } else if (actionType === 'build' && targetCard && currentLastBuildValue !== null) {
+        const newBuildValue = getRankValue(targetCard.rank);
+        if (newBuildValue === currentLastBuildValue) {
+          // Exception: Allowed to build if the new build value matches the last build value
+          console.log(`${currentPlayer} is fulfilling 'Must Capture' exception by building same value (${newBuildValue}).`);
+        } else {
+          console.log(`Invalid move: ${currentPlayer} must capture or build same value (${currentLastBuildValue}) after a build. Tried to build ${newBuildValue}.`);
+          setSelectedMiddleCards([]); // Clear selected middle cards
+          return; // Stop the function execution
+        }
+      } else {
+        console.log(`Invalid move: ${currentPlayer} must capture after a build. Tried to ${actionType}.`);
+        setSelectedMiddleCards([]); // Clear selected middle cards
+        return; // Stop the function execution
+      }
     }
 
     if (actionType === 'drop') {
-      setMiddleCards(prevMiddleCards => [...prevMiddleCards, cardToPlay]); // Removed redundant cast
+      setMiddleCards(prevMiddleCards => [...prevMiddleCards, cardToPlay]);
       console.log(`${currentPlayer} drops ${cardToPlay.rank}${cardToPlay.suit}`);
+      setPlayerMustCaptureState(false);
+      setPlayerLastBuildValueState(null);
+      if (currentPlayer === 'player') {
+        setPlayerJustMadeBuild(false); // Dropping a card ends the "just made build" state
+      } else {
+        setAiJustMadeBuild(false);
+      }
     } else if (actionType === 'capture') {
       if (!checkValidCapture(cardToPlay, selectedMiddleCards)) {
         console.log("Invalid capture: Selected middle cards do not sum up to the played card's value.");
-        // Re-add the card to the player's hand if the capture is invalid
-        if (currentPlayer === 'player') {
-          setPlayerHand(prev => [...prev, cardToPlay]);
-        } else {
-          setAiHand(prev => [...prev, cardToPlay]);
-        }
         setSelectedMiddleCards([]); // Clear selected middle cards
         return; // Stop the function execution
       }
@@ -549,36 +598,34 @@ const useSetAndSeizeGameLogic = ({ isOnline }: UseSetAndSeizeGameLogicProps) => 
       }
       setMiddleCards(prev => prev.filter(item => !selectedMiddleCards.some(selectedItem => selectedItem.id === item.id)));
       setLastCapturePlayerId(currentPlayer);
-      setMustCapture(false);
+      setPlayerMustCaptureState(false); // Capture was performed, reset mustCapture for current player
+      setPlayerLastBuildValueState(null); // Reset lastBuildValue for current player after capture
       setSelectedMiddleCards([]); // Clear selected middle cards after capture
-    } else if (actionType === 'build' && targetCard) {
-      // Check if any selected middle card is a hard build, which cannot be built upon
-      const isBuildingOnHardBuild = selectedMiddleCards.some(item => 'isHard' in item && item.isHard);
-
-      if (isBuildingOnHardBuild) {
-        console.log("Invalid build: Cannot build on a hard build.");
-        if (currentPlayer === 'player') {
-          setPlayerHand(prev => [...prev, cardToPlay]);
-        } else {
-          setAiHand(prev => [...prev, cardToPlay]);
-        }
-        setSelectedMiddleCards([]); // Clear selected middle cards
-        return; // Stop the function execution
+      // If a capture happened, the mustCapture rule ends for the *other* player if they had it.
+      if (currentPlayer === 'player') {
+        setAiMustCapture(false);
+        setAiLastBuildValue(null);
+        setAiJustMadeBuild(false);
+      } else {
+        setPlayerMustCapture(false);
+        setPlayerLastBuildValue(null);
+        setPlayerJustMadeBuild(false); // Capturing ends the "just made build" state for the player
       }
-
+    } else if (actionType === 'build' && targetCard) {
       if (buildType === 'soft-build') {
+        // Check if any selected middle card is a hard build, which cannot be built upon by a soft build
+        const isBuildingOnHardBuildForSoft = selectedMiddleCards.some(item => 'isHard' in item && item.isHard);
+        if (isBuildingOnHardBuildForSoft) {
+          console.log("Invalid soft build: Cannot soft build on a hard build.");
+          setSelectedMiddleCards([]);
+          return;
+        }
+
         if (!checkValidSoftBuild(cardToPlay, targetCard, selectedMiddleCards)) {
           console.log("Invalid soft build: Selected cards do not sum up to the target value.");
-          // Re-add the card to the player's hand if the build is invalid
-          if (currentPlayer === 'player') {
-            setPlayerHand(prev => [...prev, cardToPlay]);
-          } else {
-            setAiHand(prev => [...prev, cardToPlay]);
-          }
-          setSelectedMiddleCards([]); // Clear selected middle cards
-          return; // Stop the function execution
+          setSelectedMiddleCards([]);
+          return;
         }
-
         console.log(`${currentPlayer} performs a soft build with ${cardToPlay.rank}${cardToPlay.suit} onto`, selectedMiddleCards, `to target ${targetCard.rank}${targetCard.suit}`);
 
         // Create a new SnsBuild object
@@ -599,27 +646,55 @@ const useSetAndSeizeGameLogic = ({ isOnline }: UseSetAndSeizeGameLogicProps) => 
         // Add the new built pile to the middle
         setMiddleCards(prev => [...prev, newBuild]);
 
-        setMustCapture(true); // A build always results in a capture opportunity
+        setPlayerMustCaptureState(true); // A build always results in a capture opportunity for current player
+        setPlayerLastBuildValueState(newBuild.totalValue); // Store the value of the new build for current player
         setSelectedMiddleCards([]); // Clear selected middle cards after build
+        if (currentPlayer === 'player') {
+          setPlayerJustMadeBuild(true);
+        } else {
+          setAiJustMadeBuild(true);
+        }
       } // Closing brace for if (buildType === 'soft-build')
       
       // This else if should be a sibling to the soft-build if, not nested inside it.
-      else if (buildType === 'hard-build') { 
+      else if (buildType === 'hard-build') {
+        // Check if any selected middle card is a hard build
+        const selectedHardBuilds = selectedMiddleCards.filter((item): item is SnsBuild => 'isHard' in item && item.isHard);
+        const targetValue = getRankValue(targetCard.rank);
+
+        // If hard builds are selected, ensure their values match the target value
+        if (selectedHardBuilds.length > 0) {
+          const allHardBuildsMatchTarget = selectedHardBuilds.every(build => build.totalValue === targetValue);
+          if (!allHardBuildsMatchTarget) {
+            console.log("Invalid hard build: When building on existing hard builds, the new build's value must match the existing hard build's value.");
+            setSelectedMiddleCards([]);
+            return;
+          }
+        }
+
         const validHardBuilds = checkValidHardBuild(cardToPlay, targetCard, selectedMiddleCards);
 
         if (!validHardBuilds) {
           console.log("Invalid hard build: Selected cards do not form multiple builds for the target value.");
-          // Re-add the card to the player's hand if the build is invalid
-          if (currentPlayer === 'player') {
-            setPlayerHand(prev => [...prev, cardToPlay]);
-          } else {
-            setAiHand(prev => [...prev, cardToPlay]);
-          }
           setSelectedMiddleCards([]); // Clear selected middle cards
           return; // Stop the function execution
         }
-
         console.log(`${currentPlayer} performs a hard build with ${cardToPlay.rank}${cardToPlay.suit} and selected cards:`, selectedMiddleCards, `to target ${targetCard.rank}${targetCard.suit}`);
+
+        // Check if any selected hard builds belonged to the opponent
+        const opponent = currentPlayer === 'player' ? 'ai' : 'player';
+        const setOpponentMustCaptureState = opponent === 'player' ? setPlayerMustCapture : setAiMustCapture;
+        const setOpponentLastBuildValueState = opponent === 'player' ? setPlayerLastBuildValue : setAiLastBuildValue;
+        const setOpponentJustMadeBuildState = opponent === 'player' ? setPlayerJustMadeBuild : setAiJustMadeBuild;
+
+        selectedMiddleCards.forEach(item => {
+          if ('isHard' in item && item.isHard && item.ownerId === opponent) {
+            console.log(`Opponent's (${opponent}) hard build (${item.id}) was stack built. Resetting their mustCapture state.`);
+            setOpponentMustCaptureState(false);
+            setOpponentLastBuildValueState(null);
+            setOpponentJustMadeBuildState(false);
+          }
+        });
 
         const hardBuildGroupId = `HARDBUILDGROUP-${Date.now()}`; // Unique ID for this group of hard builds
 
@@ -655,14 +730,27 @@ const useSetAndSeizeGameLogic = ({ isOnline }: UseSetAndSeizeGameLogicProps) => 
         // Add the new built piles to the middle
         setMiddleCards(prev => [...prev, ...newBuilds]);
 
-        setMustCapture(true); // A build always results in a capture opportunity
+        setPlayerMustCaptureState(true); // A build always results in a capture opportunity for current player
+        setPlayerLastBuildValueState(getRankValue(targetCard.rank)); // Store the value of the new hard build for current player
         setSelectedMiddleCards([]); // Clear selected middle cards after build
+        if (currentPlayer === 'player') {
+          setPlayerJustMadeBuild(true);
+        } else {
+          setAiJustMadeBuild(true);
+        }
       } // Closing brace for else if (buildType === 'hard-build')
     } // Closing brace for else if (actionType === 'build' && targetCard)
 
+    // Remove card from hand after all validations and actions are complete
+    if (currentPlayer === 'player') {
+      setPlayerHand(prev => prev.filter(c => c.id !== cardToPlay.id));
+    } else {
+      setAiHand(prev => prev.filter(c => c.id !== cardToPlay.id));
+    }
+
     setHasPlayedCardThisTurn(true);
     endTurn();
-  }, [currentPlayer, endTurn, hasPlayedCardThisTurn, selectedMiddleCards, checkValidCapture, checkValidSoftBuild, checkValidHardBuild]); // Added checkValidHardBuild to dependencies
+  }, [currentPlayer, endTurn, hasPlayedCardThisTurn, selectedMiddleCards, checkValidCapture, checkValidSoftBuild, checkValidHardBuild, playerMustCapture, aiMustCapture, playerLastBuildValue, aiLastBuildValue, getIndividualCardsFromSelection, setPlayerMustCapture, setAiMustCapture, setPlayerLastBuildValue, setAiLastBuildValue, setPlayerJustMadeBuild, setAiJustMadeBuild]);
 
   // AI turn logic
   useEffect(() => {
@@ -689,7 +777,8 @@ const useSetAndSeizeGameLogic = ({ isOnline }: UseSetAndSeizeGameLogicProps) => 
     playerCollected,
     aiCollected,
     currentPlayer,
-    mustCapture,
+    playerMustCapture, // Expose playerMustCapture
+    aiMustCapture,     // Expose aiMustCapture
     selectedMiddleCards, // Expose selected middle cards
     setSelectedMiddleCards, // Expose the setter for selectedMiddleCards
     initializeGame,
@@ -699,6 +788,8 @@ const useSetAndSeizeGameLogic = ({ isOnline }: UseSetAndSeizeGameLogicProps) => 
     checkValidCapture, // Expose checkValidCapture
     checkValidSoftBuild, // Expose checkValidSoftBuild
     checkValidHardBuild, // Expose checkValidHardBuild
+    playerJustMadeBuild, // Expose playerJustMadeBuild
+    aiJustMadeBuild,     // Expose aiJustMadeBuild
     // Add other game state and actions as needed
   };
 };
